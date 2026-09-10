@@ -7,8 +7,8 @@ import { renderDesign } from "./design-theme.mjs";
 if (CONFIG.design) {
   const css = renderDesign(CONFIG.design, (rel) =>
     fs.readFileSync(
-      rel === "@architecture.css"
-        ? path.join(import.meta.dirname, "../assets/architecture.css")
+      ["@architecture.css", "@reading.css"].includes(rel)
+        ? path.join(import.meta.dirname, "../assets", rel.slice(1))
         : repoPath(rel),
       "utf8",
     ),
@@ -19,7 +19,7 @@ if (CONFIG.design) {
     "docflow-design.css",
   );
   const files = [[target, css]];
-  if (CONFIG.design.preset === "architecture")
+  if (["reading", "architecture"].includes(CONFIG.design.preset))
     files.push([
       repoPath(readBindings().site.root, "assets", "docflow-ui.js"),
       fs

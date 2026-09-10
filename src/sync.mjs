@@ -17,7 +17,7 @@ function outputPolicy(bindings) {
   const exact = new Set([`${STATE_REL}/facts.json`, `${STATE_REL}/evidence.json`, `${STATE_REL}/batch.json`, `${STATE_REL}/external.json`, `${STATE_REL}/scopes.json`]);
   const prefixes = [];
   if (CONFIG.design) exact.add(`${bindings.site.root}/assets/docflow-design.css`);
-  if (CONFIG.design?.preset === 'architecture') {
+  if (['reading', 'architecture'].includes(CONFIG.design?.preset)) {
     exact.add(`${bindings.site.root}/assets/docflow-ui.js`);
     exact.add(`${bindings.site.root}/assets/docflow-evidence.json`);
   }

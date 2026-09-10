@@ -170,6 +170,9 @@
           ...(getComputedStyle(document.documentElement).getPropertyValue('--doc-design').trim() === 'architecture' ? {
             theme: 'base',
             themeVariables: { darkMode: true, background: '#101725', primaryColor: '#1d2940', primaryTextColor: '#edf2ff', primaryBorderColor: '#7182a5', lineColor: '#aabbd7', secondaryColor: '#29314c', tertiaryColor: '#1c3540', edgeLabelBackground: '#101725', textColor: '#edf2ff', fontFamily: 'Geist, Malgun Gothic, sans-serif' },
+          } : getComputedStyle(document.documentElement).getPropertyValue('--doc-design').trim() === 'reading' ? {
+            theme: 'base',
+            themeVariables: { background: '#ffffff', primaryColor: '#f4f8f6', primaryTextColor: '#111111', primaryBorderColor: '#8ba99e', lineColor: '#66766f', secondaryColor: '#f6f7f8', tertiaryColor: '#ffffff', edgeLabelBackground: '#ffffff', textColor: '#111111', fontFamily: 'Geist, Malgun Gothic, sans-serif' },
           } : {}),
           // Leave room for multiline nodes and labels on returning edges.
           flowchart: { nodeSpacing: 100, rankSpacing: 120, wrappingWidth: 300 },

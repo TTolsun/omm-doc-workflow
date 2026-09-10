@@ -1,8 +1,9 @@
-title: Architecture Intelligence
+title: 개발자 문서
 lang: ko
 navigation:
   - title: 아키텍처
     url: /architecture.html
+    group: Architecture
 exclude:
   - _bindings.yaml
   - _content
