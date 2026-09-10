@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "sourceRoot": "../../fixtures/camera-hal",
+  "bindings": "docs/_bindings.yaml",
+  "agent": {
+    "kind": "hermes",
+    "model": "qwen3.5:4b",
+    "baseUrl": "http://127.0.0.1:11434/v1",
+    "contextLength": 65536
+  },
+  "changes": { "mode": "working-tree" },
+  "jira": { "enabled": false },
+  "confluence": { "enabled": false },
+  "design": { "preset": "slack" }
+}
