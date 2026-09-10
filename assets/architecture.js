@@ -144,9 +144,11 @@ if (enabled) {
       const data = await response.json();
       if (data.schema !== 1) throw Error("Unsupported evidence schema");
       brand.lastChild.textContent = data.project;
-      const page = decodeURIComponent(
-        location.pathname.split("/").pop() || "index.html",
-      );
+      const siteRoot = new URL("../", import.meta.url).pathname;
+      const relativePath = location.pathname.startsWith(siteRoot)
+        ? location.pathname.slice(siteRoot.length)
+        : location.pathname.replace(/^\//, "");
+      const page = decodeURIComponent(relativePath || "index.html");
       const record = data.pages[page] ?? data.projectEvidence;
       const scope = Object.hasOwn(data.pages, page)
         ? "이 페이지"
