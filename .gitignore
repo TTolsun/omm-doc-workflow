@@ -1,0 +1,6 @@
+node_modules/
+.env
+*.bundle
+dist/
+.docflow/state/.sync-lock
+.docflow/state/sync-transaction/
