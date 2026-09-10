@@ -65,7 +65,11 @@ if (enabled) {
     if (reading) {
       const toc = element("aside", "reading-toc");
       const fold = element("details");
-      fold.open = !matchMedia("(max-width: 1100px)").matches;
+      const narrowScreen = matchMedia("(max-width: 1100px)");
+      fold.open = !narrowScreen.matches;
+      narrowScreen.addEventListener("change", ({ matches }) => {
+        if (!matches) fold.open = true;
+      });
       fold.append(element("summary", "", "이 페이지 목차"), outline);
       toc.append(fold);
       shell.append(sidebar, main, toc);
