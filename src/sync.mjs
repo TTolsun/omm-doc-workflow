@@ -10,10 +10,11 @@ import { collectChanges } from './changes.mjs';
 import { collectKeys, readContentBlock, citedFiles } from './model.mjs';
 process.env.DOCFLOW_STATE_REL = STATE_REL;
 import { ommCli } from './omm-cli.mjs';
+import { resolveHermesCli } from './hermes-cli.mjs';
 import { snapshot, changedFiles, copySnapshot, prepareCommit, applyCommit, recover, journalPath, acquireLock } from './transaction.mjs';
 
 function outputPolicy(bindings) {
-  const exact = new Set([`${STATE_REL}/facts.json`, `${STATE_REL}/evidence.json`, `${STATE_REL}/batch.json`, `${STATE_REL}/external.json`]);
+  const exact = new Set([`${STATE_REL}/facts.json`, `${STATE_REL}/evidence.json`, `${STATE_REL}/batch.json`, `${STATE_REL}/external.json`, `${STATE_REL}/scopes.json`]);
   const prefixes = [];
   if (CONFIG.design) exact.add(`${bindings.site.root}/assets/docflow-design.css`);
   if (['reading', 'architecture'].includes(CONFIG.design?.preset)) {
@@ -63,10 +64,17 @@ try {
   } else {
     if (fs.existsSync(journalPath(REPO_ROOT))) throw new Error('중단된 반영 기록이 있습니다. sync.mjs --recover를 실행하세요.');
     unlock = acquireLock(REPO_ROOT);
-    const before = snapshot(REPO_ROOT);
+    // Custom modules may import arbitrary project-relative dependencies.
+    // Preserve their existing contract; ordinary projects need only document inputs.
+    const roots = CONFIG.factsAdapter || CONFIG.factsRenderer ? null : [
+      '.omm', bindings.site.root, STATE_REL, CONFIG_REL, CONFIG.bindings ?? 'docs/_bindings.yaml',
+      CONFIG.styleDir, CONFIG.design?.reference, CONFIG.design?.stylesheet,
+    ].filter(Boolean);
+    const documentRoots = roots ?? ['.omm', bindings.site.root, STATE_REL, CONFIG.styleDir].filter(Boolean);
+    const before = snapshot(REPO_ROOT, roots, documentRoots);
     const sourceBefore = sourceSnapshot(bindings);
     const changes = collectChanges(CONFIG, SOURCE_ROOT, STATE_DIR);
-    temp = fs.mkdtempSync(path.join(os.tmpdir(), 'hal-docgen-sync-'));
+    temp = fs.mkdtempSync(path.join(os.tmpdir(), 'docflow-sync-'));
     const stage = path.join(temp, 'project');
     const stageSource = path.join(temp, 'source');
     fs.mkdirSync(stageSource);
@@ -78,13 +86,13 @@ try {
     console.log('임시 복사본에서 동기화를 시작합니다. 검증 전에는 원본 파일을 바꾸지 않습니다.');
     const r = spawnSync(process.execPath, [path.join(import.meta.dirname, 'sync-worker.mjs'), ...args], {
       cwd: stage, stdio: 'inherit', env: { ...process.env, DOCGEN_STAGED_WORKER: '1', DOCFLOW_PROJECT_ROOT: stage, DOCFLOW_SOURCE_ROOT: stageSource, DOCFLOW_CONFIG: CONFIG_REL, DOCFLOW_CHANGE_FILE: changeFile,
-        DOCGEN_OMM_CLI: ommCli() },
+        DOCGEN_OMM_CLI: ommCli(), DOCFLOW_HERMES_CLI: resolveHermesCli(undefined, REPO_ROOT) },
     });
     if (r.status !== 0) throw new Error(`동기화 실패(${r.status ?? r.error?.code ?? r.signal}). 원본은 변경하지 않았습니다.`);
-    const after = snapshot(stage);
+    const after = snapshot(stage, null, documentRoots);
     if (changedFiles(sourceBefore, snapshot(stageSource)).length) throw new Error('에이전트가 코드 사본을 수정했습니다. 반영하지 않습니다.');
     if (changedFiles(sourceBefore, sourceSnapshot(bindings)).length) throw new Error('실행 중 코드 원본이 변경되었습니다. 반영하지 않습니다.');
-    const concurrent = changedFiles(before, snapshot(REPO_ROOT));
+    const concurrent = changedFiles(before, snapshot(REPO_ROOT, roots, documentRoots));
     if (concurrent.length) throw new Error(`실행 중 원본이 바뀌어 반영하지 않습니다: ${concurrent.join(', ')}`);
     // An automatic scan must never manufacture a review record.
     const reviews = files => JSON.parse(files.get(`${STATE_REL}/evidence.json`) ?? '{"entries":{}}').entries;
@@ -103,7 +111,7 @@ try {
 } finally {
   if (temp) {
     const resolved = path.resolve(temp);
-    if (path.dirname(resolved) === path.resolve(os.tmpdir()) && path.basename(resolved).startsWith('hal-docgen-sync-')) {
+    if (path.dirname(resolved) === path.resolve(os.tmpdir()) && path.basename(resolved).startsWith('docflow-sync-')) {
       fs.rmSync(resolved, { recursive: true, force: true });
     }
   }

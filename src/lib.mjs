@@ -46,7 +46,7 @@ export function writeState(name, value) {
 
 // --- 글롭 -----------------------------------------------------------------
 // `**` 는 여러 디렉터리를, `*` 는 한 경로 조각 안에서만 매칭합니다.
-function globToRegExp(pattern) {
+export function globToRegExp(pattern) {
   let out = "";
   for (let i = 0; i < pattern.length; i += 1) {
     const c = pattern[i];

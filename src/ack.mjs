@@ -1,6 +1,8 @@
 import { readState, writeState, readBindings } from './lib.mjs';
 import { collectKeys, computeHashes, stateOf } from './model.mjs';
+import { CONFIG } from './config.mjs';
 
+if (CONFIG.changes?.mode !== 'commits') throw new Error('ack는 changes.mode=commits에서만 사용합니다. working-tree 모드에는 checkpoint가 없습니다.');
 const args = process.argv.slice(2);
 const reviewer = args.find(x => x.startsWith('--reviewer='))?.slice(11);
 const commit = args.find(x => x.startsWith('--source-commit='))?.slice(16);

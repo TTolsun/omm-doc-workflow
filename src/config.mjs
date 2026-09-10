@@ -19,6 +19,11 @@ export const SOURCE_ROOT = path.resolve(process.env.DOCFLOW_SOURCE_ROOT ?? path.
 if (!fs.existsSync(SOURCE_ROOT) || !fs.statSync(SOURCE_ROOT).isDirectory()) throw new Error('sourceRoot must be an existing directory');
 if (CONFIG.confluence?.enabled && !CONFIG.jira?.enabled) throw new Error('Confluence link ingestion requires Jira to be enabled');
 if (CONFIG.jira?.attachments && !['links', 'ignore'].includes(CONFIG.jira.attachments)) throw new Error('jira.attachments must be links or ignore');
+if (CONFIG.jira?.enabled) {
+  if (CONFIG.changes?.mode !== 'commits') throw new Error('jira.enabled에는 changes.mode=commits가 필요합니다.');
+  if (!/^[A-Z][A-Z0-9_]*$/.test(CONFIG.jira.projectKey ?? '') || !CONFIG.jira.issuePattern) throw new Error('jira.enabled에는 projectKey와 issuePattern이 필요합니다.');
+  new RegExp(CONFIG.jira.issuePattern, 'gi');
+}
 export const STATE_REL = CONFIG.stateDir ?? '.docflow/state';
 export const OMM_REL = CONFIG.ommDir ?? '.omm';
 if (OMM_REL !== '.omm') throw new Error('OMM CLI requires the standard .omm directory');

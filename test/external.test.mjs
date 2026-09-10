@@ -45,9 +45,12 @@ test('commit range uses the acknowledged cursor and extracts CSWPR IDs from comm
   git('init','-b','main'); git('config','user.email','fixture@example.invalid'); git('config','user.name','Fixture');
   fs.writeFileSync(path.join(source,'한글.cpp'),'int limit = 4;\n'); git('add','.'); git('commit','-m','baseline'); const base=git('rev-parse','HEAD');
   fs.writeFileSync(path.join(source,'한글.cpp'),'int limit = 6;\n'); git('add','.'); git('commit','-m','CSWPR-123: buffer limit','-m','Related: CSWPR 124');
-  const config={changes:{mode:'commits',initialCommit:base}};
+  const config={changes:{mode:'commits',initialCommit:base},jira:{enabled:true,projectKey:'CSWPR',issuePattern:'\\bCSWPR[- ]?(\\d+)\\b'}};
   const batch=collectChanges(config,source,state);
   assert.deepEqual(batch.issues,['CSWPR-123','CSWPR-124']); assert.equal(batch.changedFiles[0].path,'한글.cpp');
+  assert.equal(batch.commits[0].changedFiles[0].path, '한글.cpp');
+  assert.deepEqual(collectChanges({changes:config.changes},source,state).issues, []);
+  assert.throws(() => collectChanges({...config,jira:{enabled:true}},source,state), /projectKey와 issuePattern/);
   assert.equal(fs.existsSync(path.join(state,'checkpoint.json')),false);
   fs.writeFileSync(path.join(state,'checkpoint.json'),JSON.stringify({sourceCommit:batch.headCommit}));
   assert.equal(collectChanges(config,source,state).commits.length,0);

@@ -5,6 +5,12 @@ export function positiveInt(name, fallback) {
   return value;
 }
 
+export function checkPrompt(prompt) {
+  if (prompt.length > positiveInt('DOCGEN_MAX_PROMPT_CHARS', 60000)) {
+    throw new Error(`모델 입력이 너무 큽니다(${prompt.length}자). 근거 범위를 나누거나 컨텍스트 설정을 조정하세요. 입력을 잘라 보내지는 않습니다.`);
+  }
+}
+
 export async function qwen(prompt, schema) {
   const endpoint = new URL(process.env.DOCGEN_OLLAMA_URL ?? 'http://127.0.0.1:11434');
   if (endpoint.protocol !== 'http:' || !['127.0.0.1', 'localhost', '[::1]'].includes(endpoint.hostname) ||
@@ -12,10 +18,8 @@ export async function qwen(prompt, schema) {
     throw new Error('DOCGEN_OLLAMA_URL must be a local HTTP origin');
   }
   const model = process.env.DOCGEN_QWEN_MODEL ?? 'qwen3.5:4b';
-  if (!/^qwen[\w.:-]*$/i.test(model) || /cloud/i.test(model)) throw new Error('Use an installed local Qwen model');
-  if (prompt.length > positiveInt('DOCGEN_MAX_PROMPT_CHARS', 60000)) {
-    throw new Error(`Qwen 입력이 너무 큽니다(${prompt.length}자). 근거 범위를 나누거나 컨텍스트 설정을 조정하세요. 입력을 잘라 보내지는 않습니다.`);
-  }
+  if (!model.trim()) throw new Error('agent.model을 지정하세요.');
+  checkPrompt(prompt);
   const start = Date.now();
   const response = await fetch(new URL('/api/chat', endpoint), {
     method: 'POST', redirect: 'error',

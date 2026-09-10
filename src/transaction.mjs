@@ -23,13 +23,16 @@ export function safePath(root, rel) {
   return target;
 }
 
-export function snapshot(root) {
+export function snapshot(root, roots = null, documentationRoots = roots ?? ['.omm', 'docs']) {
   const files = new Map();
+  const selected = rel => !roots || roots.some(p => rel === p || rel.startsWith(p + '/') || p.startsWith(rel + '/'));
   function walk(dir, prefix = '') {
     for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
       const rel = prefix + ent.name;
+      if (!selected(rel)) continue;
+      if (ent.name === '.sync-lock' || ent.name === 'sync-transaction') continue;
       // A documentation element may legitimately be named "build".
-      const documentation = rel.startsWith('.omm/') || rel.startsWith('docs/');
+      const documentation = documentationRoots.some(p => rel === p || rel.startsWith(p + '/'));
       if (!documentation && (excluded.has(ent.name) || localOnly(ent.name))) continue;
       if (ent.isSymbolicLink()) throw new Error(`Symlink is not supported: ${rel}`);
       if (ent.isDirectory()) walk(path.join(dir, ent.name), rel + '/');
