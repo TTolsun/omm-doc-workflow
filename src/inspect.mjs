@@ -12,7 +12,7 @@ import {
   citedFiles,
 } from "./model.mjs";
 
-if (CONFIG.design?.preset === "architecture") {
+if (["reading", "architecture"].includes(CONFIG.design?.preset)) {
   const bindings = readBindings();
   const evidence = readState("evidence.json", { entries: {} }).entries;
   const keys = collectKeys(bindings);
