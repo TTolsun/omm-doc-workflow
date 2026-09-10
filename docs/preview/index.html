@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>요청 수용 조건 · Camera HAL · 디자인 예제</title>
+  <style>
+    body{max-width:1100px;margin:0 auto;padding:24px;font:16px/1.7 system-ui,sans-serif;color:#172033}nav{display:flex;gap:20px;flex-wrap:wrap;border-bottom:1px solid #ddd;padding-bottom:16px}a{color:#1459a6}pre{overflow:auto;background:#f4f6f8;padding:16px}table{border-collapse:collapse;display:block;overflow:auto}th,td{border:1px solid #ddd;padding:8px;text-align:left}sub{font-size:.8rem}.mermaid{overflow:auto}h2,h3{margin-top:2em}
+    main :not(pre)>code{overflow-wrap:anywhere}
+    details{margin:16px 0;padding:10px 14px;border:1px solid #ddd;border-radius:6px}summary{cursor:pointer;font-weight:600}.doc-evidence{font-size:.875rem;overflow-wrap:anywhere}summary:focus-visible{outline:3px solid #1459a6;outline-offset:2px}
+    button{font:inherit;cursor:pointer;border:1px solid #bac5d3;border-radius:6px;background:#fff;color:#1459a6;padding:6px 12px}
+    button:hover{background:#edf3fa}button:focus-visible{outline:3px solid #1459a6;outline-offset:2px}button:disabled{opacity:.45;cursor:default}
+    .mermaid[role="button"]{cursor:zoom-in}.mermaid:focus-visible{outline:3px solid #1459a6;outline-offset:2px}
+    .diagram-dialog{box-sizing:border-box;width:96vw;max-width:none;height:92dvh;max-height:92dvh;padding:0;border:1px solid #bac5d3;border-radius:10px;color:#172033;background:#fff}
+    .diagram-dialog[open]{display:flex;flex-direction:column}.diagram-dialog::backdrop{background:rgb(0 0 0 / .65)}
+    .diagram-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:12px;border-bottom:1px solid #ddd}
+    .diagram-toolbar h2{font-size:1rem;margin:0 auto 0 0}.diagram-toolbar output{min-width:4em;text-align:center}.diagram-close{margin-left:auto}
+    .diagram-viewport{flex:1;min-height:0;overflow:auto;padding:16px;background:#f4f6f8}
+    .diagram-canvas{width:max-content;min-width:100%;min-height:100%;display:flex;align-items:center;justify-content:center}
+    .diagram-canvas svg{display:block;flex:none;max-width:none!important;background:#fff}
+    @media(max-width:600px){.diagram-toolbar h2{width:100%}.diagram-toolbar{gap:6px;padding:8px}.diagram-toolbar button{padding:6px 8px}}
+  </style>
+  <link rel="stylesheet" href="./assets/docflow-design.css">
+  <script type="module" src="./assets/docflow-ui.js"></script>
+</head>
+<body>
+  <nav aria-label="문서 메뉴">
+    <a href="./index.html" aria-current="page">아키텍처 예제</a>
+  </nav>
+  <main><h1>요청 수용 조건</h1>
+<p><strong>먼저 RequestQueue.h의 kBufferLimit과 RequestQueue.cpp의 canAccept를 함께 확인하세요.</strong> 이 페이지는 실행기 시험용 예제이며 실제 제품의 HAL 설계 문서가 아닙니다.</p>
+<!-- omm:begin id=status -->
+<table>
+<thead>
+<tr>
+<th>항목</th>
+<th>최신성</th>
+<th>검토</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>구조 원본 <code>request-flow</code></td>
+<td>검증 정보 없음</td>
+<td>—</td>
+</tr>
+<tr>
+<td>원고 <code>overview</code></td>
+<td>검증 정보 없음</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<!-- omm:end id=status -->
+<h2>구조</h2>
+<!-- omm:begin id=diagram -->
+<pre><code class="language-mermaid">graph LR
+    admission-check[&quot;요청 수용 조건 확인&quot;]
+</code></pre>
+<details class="doc-evidence" markdown="1">
+<summary>근거와 검토 정보</summary>
+<ul>
+<li>근거: <code>.omm/request-flow/diagram</code></li>
+<li>근거 수준: 코드 확인</li>
+</ul>
+</details>
+<!-- omm:end id=diagram -->
+<h2>코드 동작</h2>
+<!-- omm:begin id=overview -->
+<p>canAccept는 처리 중인 버퍼 수가 4보다 작을 때 true를 반환합니다. 4 이상이면 false를 반환합니다. 경곗값은 RequestQueue.h의 kBufferLimit에 정의되어 있습니다.</p>
+<details class="doc-evidence" markdown="1">
+<summary>근거와 검토 정보</summary>
+<ul>
+<li>근거 파일: <code>RequestQueue.h</code>, <code>RequestQueue.cpp</code></li>
+<li>근거 수준: 코드 확인</li>
+<li>검토 상태: 검증 정보 없음</li>
+</ul>
+</details>
+<!-- omm:end id=overview -->
+<p>다음으로 처리 중인 버퍼 수가 경곗값과 같을 때의 결과를 확인하세요.</p>
+</main>
+  <dialog class="diagram-dialog" aria-labelledby="diagram-title">
+    <div class="diagram-toolbar">
+      <h2 id="diagram-title">그림 크게 보기</h2>
+      <button type="button" data-zoom="out" aria-label="그림 축소">−</button>
+      <output aria-live="polite" aria-label="확대 비율">100%</output>
+      <button type="button" data-zoom="in" aria-label="그림 확대">+</button>
+      <button type="button" data-zoom="fit">화면 맞춤</button>
+      <button type="button" data-zoom="actual">100%</button>
+      <button type="button" class="diagram-close" autofocus>닫기</button>
+    </div>
+    <div class="diagram-viewport" tabindex="0" role="region" aria-label="확대한 그림. 방향키로 스크롤할 수 있습니다.">
+      <div class="diagram-canvas"></div>
+    </div>
+  </dialog>
+  <script type="module">
+    document.querySelectorAll('nav[aria-label="문서 메뉴"] a').forEach(link => {
+      if (new URL(link.href).pathname === location.pathname) link.setAttribute('aria-current', 'page');
+    });
+    const dialog = document.querySelector('.diagram-dialog');
+    const viewport = dialog.querySelector('.diagram-viewport');
+    const canvas = dialog.querySelector('.diagram-canvas');
+    const zoomLabel = dialog.querySelector('output');
+    const zoomOut = dialog.querySelector('[data-zoom="out"]');
+    const zoomIn = dialog.querySelector('[data-zoom="in"]');
+    let activeDiagram;
+    let scale = 1;
+    let fitting = false;
+
+    function setScale(next) {
+      if (!activeDiagram) return;
+      const previous = scale;
+      scale = Math.max(.01, Math.min(8, next));
+      const { svg, width, height } = activeDiagram;
+      svg.style.width = `${width * scale}px`;
+      svg.style.height = `${height * scale}px`;
+      zoomLabel.value = `${Math.round(scale * 100)}%`;
+      zoomOut.disabled = scale <= .01;
+      zoomIn.disabled = scale >= 8;
+      viewport.scrollLeft = (viewport.scrollLeft + viewport.clientWidth / 2) * scale / previous - viewport.clientWidth / 2;
+      viewport.scrollTop = (viewport.scrollTop + viewport.clientHeight / 2) * scale / previous - viewport.clientHeight / 2;
+    }
+
+    function fitDiagram() {
+      if (!activeDiagram) return;
+      fitting = true;
+      setScale(Math.min((viewport.clientWidth - 32) / activeDiagram.width, (viewport.clientHeight - 32) / activeDiagram.height, 1));
+      viewport.scrollTo(0, 0);
+    }
+
+    function openDiagram(svg, trigger) {
+      if (activeDiagram) return;
+      const { width, height } = svg.viewBox.baseVal;
+      if (!width || !height) return;
+      const placeholder = document.createComment('diagram viewer placeholder');
+      activeDiagram = { svg, width, height, placeholder, trigger, style: svg.getAttribute('style') };
+      svg.replaceWith(placeholder);
+      canvas.append(svg);
+      dialog.showModal();
+      fitDiagram();
+    }
+
+    dialog.querySelector('.diagram-close').addEventListener('click', () => dialog.close());
+    dialog.addEventListener('close', () => {
+      if (!activeDiagram) return;
+      const { svg, placeholder, trigger, style } = activeDiagram;
+      if (style === null) svg.removeAttribute('style');
+      else svg.setAttribute('style', style);
+      placeholder.replaceWith(svg);
+      activeDiagram = undefined;
+      trigger.focus({ preventScroll: true });
+    });
+    dialog.querySelectorAll('[data-zoom]').forEach(button => {
+      button.addEventListener('click', () => {
+        const action = button.dataset.zoom;
+        if (action === 'fit') return fitDiagram();
+        fitting = false;
+        setScale(action === 'actual' ? 1 : scale * (action === 'in' ? 1.25 : .8));
+      });
+    });
+    window.addEventListener('resize', () => { if (fitting && dialog.open) fitDiagram(); });
+
+    const blocks = [...document.querySelectorAll('pre > code.language-mermaid')];
+    if (blocks.length) {
+      try {
+        const { default: mermaid } = await import('https://cdn.jsdelivr.net/npm/mermaid@11.12.0/dist/mermaid.esm.min.mjs');
+        mermaid.initialize({
+          startOnLoad: false,
+          securityLevel: 'strict',
+          ...(getComputedStyle(document.documentElement).getPropertyValue('--doc-design').trim() === 'architecture' ? {
+            theme: 'base',
+            themeVariables: { darkMode: true, background: '#101725', primaryColor: '#1d2940', primaryTextColor: '#edf2ff', primaryBorderColor: '#7182a5', lineColor: '#aabbd7', secondaryColor: '#29314c', tertiaryColor: '#1c3540', edgeLabelBackground: '#101725', textColor: '#edf2ff', fontFamily: 'Geist, Malgun Gothic, sans-serif' },
+          } : {}),
+          // Leave room for multiline nodes and labels on returning edges.
+          flowchart: { nodeSpacing: 100, rankSpacing: 120, wrappingWidth: 300 },
+        });
+        const nodes = blocks.map(code => {
+          const node = document.createElement('div');
+          node.className = 'mermaid';
+          // OMM flowchart labels use literal \n separators; Mermaid needs <br/>.
+          const source = code.textContent;
+          node.textContent = /^\s*(?:flowchart|graph)\s/m.test(source)
+            ? source.replace(/"[^"\r\n]*"/g, label => label.replace(/\\n/g, '<br/>'))
+            : source;
+          code.parentElement.replaceWith(node);
+          return node;
+        });
+        await mermaid.run({ nodes });
+        nodes.forEach(node => {
+          const svg = node.querySelector('svg');
+          if (!svg) return;
+          node.tabIndex = 0;
+          node.setAttribute('role', 'button');
+          node.setAttribute('aria-label', '그림 확대');
+          node.setAttribute('aria-haspopup', 'dialog');
+          node.addEventListener('click', event => {
+            if (!event.target.closest('a')) openDiagram(svg, node);
+          });
+          node.addEventListener('keydown', event => {
+            if (event.target === node && (event.key === 'Enter' || event.key === ' ')) {
+              event.preventDefault();
+              openDiagram(svg, node);
+            }
+          });
+        });
+      } catch (error) {
+        console.error('Mermaid rendering failed', error);
+      }
+    }
+  </script>
+</body>
+</html>

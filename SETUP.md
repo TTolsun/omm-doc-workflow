@@ -47,7 +47,7 @@ Jira와 Confluence는 선택 사항입니다. 사용한다면 Jira URL·인증 �
 
 문체는 `style/README.md`와 두 규칙 원문을 사용합니다. 프로젝트 규칙을 추가하더라도 근거 구분과 한국어 완성 문장 원칙을 유지합니다.
 
-시각적 형식은 기본 Slack 디자인을 사용합니다. `DESIGN.md`를 읽고 [디자인 설정](docs/design.md)에 따라 공통 레이아웃에서 생성 CSS를 불러옵니다. 다른 형식은 `design.preset`과 프로젝트 CSS로 연결하며, 디자인 선택은 문체·근거 검증과 별도로 유지합니다.
+시각적 형식은 기본 Architecture Intelligence 예제를 사용합니다. `DESIGN.md`를 읽고 [디자인 설정](docs/design.md)에 따라 `templates/jekyll`의 레이아웃과 생성 CSS·JS를 연결합니다. 코드 근거 표시는 `inspect`로 생성합니다. 다른 형식은 `design.preset`과 프로젝트 CSS로 연결하며, 디자인 선택은 문체·근거 검증과 별도로 유지합니다. 소비 프로젝트의 적용은 해당 프로젝트를 수정하도록 요청받았을 때 진행합니다.
 
 ## 4. 실제 연결을 검사합니다
 

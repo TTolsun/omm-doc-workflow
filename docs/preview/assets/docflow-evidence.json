@@ -1,0 +1,84 @@
+{
+  "schema": 1,
+  "project": "Camera HAL · 디자인 예제",
+  "sourceWebUrl": null,
+  "projectEvidence": {
+    "files": [
+      "RequestQueue.cpp",
+      "RequestQueue.h"
+    ],
+    "sourceGroups": [
+      {
+        "id": "request-flow",
+        "patterns": [
+          "**/*.cpp",
+          "**/*.h"
+        ],
+        "fileCount": 2
+      }
+    ],
+    "reviews": [
+      {
+        "key": "omm:request-flow",
+        "state": "unknown",
+        "reviewedAt": null,
+        "reviewedCommit": null,
+        "reviewer": null
+      },
+      {
+        "key": "content:architecture.md/overview",
+        "state": "unknown",
+        "reviewedAt": null,
+        "reviewedCommit": null,
+        "reviewer": null
+      }
+    ],
+    "reviewedCount": 0,
+    "reviewCount": 2,
+    "status": "unreviewed",
+    "reviewedAt": null,
+    "reviewedCommits": [],
+    "citationCount": 2
+  },
+  "pages": {
+    "index.html": {
+      "files": [
+        "RequestQueue.cpp",
+        "RequestQueue.h"
+      ],
+      "sourceGroups": [
+        {
+          "id": "request-flow",
+          "patterns": [
+            "**/*.cpp",
+            "**/*.h"
+          ],
+          "fileCount": 2
+        }
+      ],
+      "reviews": [
+        {
+          "key": "omm:request-flow",
+          "state": "unknown",
+          "reviewedAt": null,
+          "reviewedCommit": null,
+          "reviewer": null
+        },
+        {
+          "key": "content:architecture.md/overview",
+          "state": "unknown",
+          "reviewedAt": null,
+          "reviewedCommit": null,
+          "reviewer": null
+        }
+      ],
+      "reviewedCount": 0,
+      "reviewCount": 2,
+      "status": "unreviewed",
+      "reviewedAt": null,
+      "reviewedCommits": [],
+      "citationCount": 2
+    }
+  },
+  "changes": null
+}
