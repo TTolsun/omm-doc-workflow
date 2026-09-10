@@ -9,8 +9,9 @@ export async function runAgent(prompt, schema) {
   checkPrompt(prompt);
   const settings = CONFIG.agent ?? { kind: 'hermes', model: 'qwen3.5:4b' };
   if (settings.kind === 'ollama') {
-    if (process.env.DOCGEN_QWEN_MODEL && process.env.DOCGEN_QWEN_MODEL !== settings.model) throw new Error('DOCGEN_QWEN_MODEL이 agent.model과 일치하지 않습니다.');
-    process.env.DOCGEN_QWEN_MODEL = settings.model ?? 'qwen3.5:4b';
+    const model = settings.model ?? 'qwen3.5:4b';
+    if (process.env.DOCGEN_QWEN_MODEL && process.env.DOCGEN_QWEN_MODEL !== model) throw new Error('DOCGEN_QWEN_MODEL이 agent.model과 일치하지 않습니다.');
+    process.env.DOCGEN_QWEN_MODEL = model;
     process.env.DOCGEN_OLLAMA_URL ??= settings.baseUrl ?? 'http://127.0.0.1:11434';
     return qwen(prompt, schema);
   }
@@ -26,6 +27,7 @@ export async function runAgent(prompt, schema) {
         context_length: settings.contextLength ?? 65536,
         api_key: process.env.DOCFLOW_MODEL_API_KEY ?? '' },
       // Keep an explicit known toolset but disable it: omitting --toolsets enables defaults.
+      // test/hermes-real.test.mjs checks the real CLI's outgoing API request has no tools.
       agent: { max_turns: 8, disabled_toolsets: ['file'] },
       terminal: { cwd: PROJECT_ROOT },
     }), { mode: 0o600 });

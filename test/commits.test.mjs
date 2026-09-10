@@ -67,8 +67,10 @@ test('key selection matches deleted paths and content-only citations without usi
 
 test('key-scoped Jira prompts exclude unrelated issues and prune obsolete evidence while retaining citations', async t => {
   const f = makeFixture(); t.after(f.cleanup);
+  let unavailable = false;
   const service = http.createServer((req, res) => {
     const key = req.url.split('/').pop();
+    if (unavailable && req.url.includes('/issue/')) { res.writeHead(503); res.end(); return; }
     if (req.url.includes('/issue/')) res.end(JSON.stringify({ fields: { summary: key, description: `Problem\n${key} evidence\nhttp://127.0.0.1:${service.address().port}/pages/123` } }));
     else res.end(JSON.stringify({ title: 'Design', version: { number: 1 }, body: { storage: { value: '<p>Decision</p>' } } }));
   });
@@ -77,7 +79,7 @@ test('key-scoped Jira prompts exclude unrelated issues and prune obsolete eviden
   const baseUrl = `http://127.0.0.1:${service.address().port}`;
   const config = JSON.parse(fs.readFileSync(path.join(f.root, 'docflow.json')));
   config.changes = { mode: 'commits' };
-  config.jira = { enabled: true, projectKey: 'TEAM', issuePattern: 'TEAM-(\\d+)', baseUrl };
+  config.jira = { enabled: true, projectKey: 'TEAM', issuePattern: 'TEAM-(\\d+)', baseUrl, failurePolicy:'record-missing' };
   config.confluence = { enabled: true, baseUrl }; f.put('docflow.json', JSON.stringify(config));
   const collect = async commits => {
     f.put('batch-input.json', JSON.stringify({ commits, changedFiles: commits.flatMap(c => c.changedFiles), issues: commits.flatMap(c => c.issues), headCommit: commits.at(-1).sha }));
@@ -103,4 +105,21 @@ test('key-scoped Jira prompts exclude unrelated issues and prune obsolete eviden
   f.put(rel, fs.readFileSync(path.join(f.root, rel), 'utf8').replace('references: [jira:TEAM-1]\n', ''));
   await collect([change(5, 'unrelated.md')]);
   assert.deepEqual(state(f, 'external.json').issues.map(x => x.key), ['TEAM-4', 'TEAM-5']);
+  unavailable = true;
+  await collect([change(4, probeFile)]);
+  assert.equal(state(f, 'external.json').issues[0].state, 'unavailable');
+  assert.deepEqual(state(f, 'external.json').issues[0].confluenceUrls, [`${baseUrl}/pages/123`]);
+  assert.equal(state(f, 'external.json').confluence.length, 1);
+  const legacy = state(f, 'external.json');
+  delete legacy.issues[0].confluenceUrls;
+  legacy.confluence.push({id:'999',url:`${baseUrl}/pages/999`,state:'available',storage:'legacy design'});
+  f.put('tools/docgen/state/external.json', JSON.stringify(legacy));
+  for (const n of [6, 7]) {
+    await collect([change(n, 'unrelated.md')]);
+    assert.equal(state(f, 'external.json').confluence.length, 2);
+    brief = run(f, 'brief', ['probe.md', 'overview-0']); ok(brief); assert.match(brief.out, /legacy design/);
+  }
+  unavailable = false;
+  await collect([change(8, probeFile)]);
+  assert.equal(state(f, 'external.json').confluence.length, 1);
 });

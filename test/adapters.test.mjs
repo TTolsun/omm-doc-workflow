@@ -6,6 +6,7 @@ import path from 'node:path';
 import { makeFixture, manuscript, runSync, probeFile } from './helper.mjs';
 import { snapshot, changedFiles } from '../src/transaction.mjs';
 import { spawnSync } from 'node:child_process';
+import { spawnHermes } from '../src/hermes-cli.mjs';
 
 test('Hermes CLI contract passes Qwen profile and rejects agent filesystem writes', async t => {
   const f=makeFixture(); t.after(f.cleanup);
@@ -99,6 +100,47 @@ test('Ollama uses the configured alias and refuses a conflicting environment mod
     assert.equal(r.status, model === 'different-model' ? 1 : 0, r.stderr);
     if (model === 'different-model') assert.match(r.stderr, /agent.model과 일치하지/);
   }
+});
+
+test('Ollama compares the effective default model on repeated calls', t => {
+  const f = makeFixture(); t.after(f.cleanup);
+  const config = JSON.parse(fs.readFileSync(path.join(f.root, 'docflow.json')));
+  config.agent = { kind: 'ollama' }; f.put('docflow.json', JSON.stringify(config));
+  const script = `import assert from 'node:assert/strict'; import {runAgent} from './tools/docgen/agent.mjs';
+    globalThis.fetch = async (url, options) => { assert.equal(JSON.parse(options.body).model, 'qwen3.5:4b');
+      return new Response(JSON.stringify({done:true,done_reason:'stop',message:{content:'{"ok":true}'}})); };
+    await runAgent('first', {type:'object'}); await runAgent('second', {type:'object'});`;
+  for (const model of ['', 'qwen3.5:4b', 'other-model']) {
+    const r = spawnSync(process.execPath, ['--input-type=module', '-e', script], {cwd:f.root, encoding:'utf8', env:{...process.env, DOCGEN_QWEN_MODEL:model}});
+    assert.equal(r.status, model === 'other-model' ? 1 : 0, r.stderr);
+    if (model === 'other-model') assert.match(r.stderr, /agent.model과 일치하지/);
+  }
+});
+
+test('relative Hermes executable paths use the caller cwd', t => {
+  const f = makeFixture(); t.after(f.cleanup);
+  f.put('cli tools/hermes.mjs', 'console.log("caller-cwd")');
+  const before = process.env.DOCFLOW_HERMES_CLI;
+  t.after(() => { if (before === undefined) delete process.env.DOCFLOW_HERMES_CLI; else process.env.DOCFLOW_HERMES_CLI = before; });
+  process.env.DOCFLOW_HERMES_CLI = 'cli tools/hermes.mjs';
+  let r = spawnHermes([], {cwd:f.root, encoding:'utf8'});
+  assert.equal(r.status, 0, r.stderr); assert.match(r.stdout, /caller-cwd/);
+  if (process.platform === 'win32') {
+    f.put('cli tools/hermes.cmd', '@echo off\r\necho caller-cwd\r\n');
+    process.env.DOCFLOW_HERMES_CLI = 'cli tools/hermes';
+    r = spawnHermes([], {cwd:f.root, encoding:'utf8'});
+    assert.equal(r.status, 0, r.stderr); assert.match(r.stdout, /caller-cwd/);
+  }
+});
+
+test('relative Hermes paths remain valid after sync moves into its stage', async t => {
+  const f = makeFixture(); t.after(f.cleanup);
+  const config = JSON.parse(fs.readFileSync(path.join(f.root, 'docflow.json')));
+  config.agent = {kind:'hermes',model:'internal-model'}; f.put('docflow.json', JSON.stringify(config));
+  f.put('cli tools/hermes.mjs', `let text=''; for await (const part of process.stdin) text+=part;
+    console.log(JSON.stringify(text.includes('구조 스캔:')?{updates:[]}:{markdown:${JSON.stringify(manuscript('12000'))}}));`);
+  const result = await runSync(f.root, {DOCFLOW_HERMES_CLI:'cli tools/hermes.mjs'});
+  assert.equal(result.code, 0, result.out);
 });
 
 test('application status facts are rendered only by an explicit project renderer', t => {

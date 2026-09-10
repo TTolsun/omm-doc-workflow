@@ -14,14 +14,21 @@
 | [#5: CLI와 예제 생성 결과](https://github.com/TTolsun/omm-doc-workflow/issues/5) | 테스트의 실제 CLI 진입점 공백과 예제의 `generate --check` 실패를 확인했습니다. `--project`, `--source`, 상대 `--config`, 기본 작업 디렉터리, 잘못된 명령·인수를 검사합니다. 절대 `--config`는 기존 프로젝트 상대 경로 계약에 따라 거부합니다. 예제의 생성 블록을 반영했으며 검토 승인은 추가하지 않았습니다. |
 | [#6: 작은 개선 제안](https://github.com/TTolsun/omm-doc-workflow/issues/6) | 일반 프로젝트의 스냅샷을 문서 입력으로 좁혔습니다. 사용자 모듈의 상대 import가 있는 프로젝트는 호환성을 위해 전체 복사를 유지합니다. Windows Hermes 실행 파일과 `.cmd` 탐색을 공통화했고 `doctor`에 실제 오류 코드를 표시합니다. `ack`는 working-tree 모드에서 전용 안내를 제공합니다. 스타일 원문 축약은 저장소의 원문 전체 적용 규칙과 충돌하므로 채택하지 않았습니다. |
 
-Hermes 도구 비활성화 방식은 [공식 설정 문서](https://hermes-agent.nousresearch.com/docs/user-guide/configuration/)와 [CLI 구현](https://github.com/NousResearch/hermes-agent/blob/main/cli.py)을 대조했습니다. 설치된 Hermes에서도 해당 설정이 적용되는지는 실제 실행 검증이 필요합니다.
+Hermes 도구 비활성화 방식은 [공식 설정 문서](https://hermes-agent.nousresearch.com/docs/user-guide/configuration/)와 [검증한 CLI 구현](https://github.com/NousResearch/hermes-agent/blob/564aef2946c436500a5e80ee117b66b789b3f99a/hermes_cli/cli_agent_setup_mixin.py)을 대조했습니다. Hermes 0.21.1의 같은 커밋을 임시 환경에 설치하고 실제 CLI가 로컬 모의 API에 보낸 요청을 관찰하여, `file` 집합을 선택한 뒤 비활성화했을 때 도구 목록이 없음을 확인했습니다. 재현 절차는 `test/hermes-real.test.mjs`에 포함합니다.
+
+## PR #8 리뷰 반영
+
+- 기존 이슈에 `confluenceUrls`가 없으면 연결 관계가 불명확하므로 기존 Confluence 페이지를 보수적으로 보존합니다. `record-missing`으로 이슈 조회가 실패해도 이전 링크 목록이 있으면 유지합니다. 이후 링크 정보가 확보되면 불필요한 페이지를 다시 정리합니다.
+- Ollama는 기본값까지 적용한 유효 모델 이름을 계산한 뒤 환경변수와 비교합니다. `agent.model`이 없고 환경변수가 기본 모델과 같은 경우와 같은 프로세스의 반복 호출을 검사합니다.
+- 상대 Hermes 실행 경로는 호출 작업 디렉터리를 기준으로 해석합니다. 동기화는 문서 프로젝트에서 절대 경로로 고정한 뒤 스테이지에 전달하므로, 실행 파일이 스테이지 복사 범위 밖에 있어도 사용할 수 있습니다.
+- Hermes 설정 우선순위 지적은 실제 CLI와 로컬 모의 API를 연결한 검사로 확인했습니다. 기본 도구를 다시 활성화할 수 있는 옵션 생략 대신, 실제로 도구 목록이 비어 있음을 확인한 기존 방식을 유지합니다.
 
 ## 검증 결과
 
-- Windows와 Node 24.18.0에서 `npm test`를 실행하여 41개 중 39개가 통과했습니다. 실제 Qwen이 필요한 2개는 실행 조건이 없어 건너뛰었습니다.
+- Windows와 Node 24.18.0에서 `DOCFLOW_REAL_HERMES_CLI`에 임시 설치본을 지정하여 `npm test`를 실행했습니다. 45개 중 43개가 통과했고, 실제 Qwen이 필요한 2개는 실행 조건이 없어 건너뛰었습니다. Hermes 경로를 지정하지 않는 기본 실행에서는 실제 Hermes 검사도 건너뜁니다.
 - 임시 프로젝트에서 모의 모델을 통한 실행·원고 생성·반영을 확인했습니다. HTTP 오류, 시간 초과, 잘못된 응답, 허용 범위 밖 수정, 중간 반영 실패, 중단 후 복구, 동시 수정 시 원본 보존 검사도 통과했습니다.
 - 예제의 `sync --dry-run`과 `generate --check`가 통과했습니다. `npm run preview:build` 결과는 기존 미리보기와 같았습니다. `git diff --check`도 통과했습니다.
-- 모의 Hermes 실행 파일과 Windows `.cmd`를 이용한 `doctor` 검사는 통과했습니다. 실제 환경의 예제 `doctor`는 Hermes 실행 파일을 찾지 못해 `ENOENT`로 실패했습니다. 실제 Hermes·Qwen·사내 Jira·Confluence 연결은 확인하지 않았습니다.
+- 모의 Hermes 실행 파일과 Windows `.cmd`를 이용한 `doctor` 검사는 통과했습니다. 기본 환경에서는 Hermes 실행 파일을 찾지 못해 `ENOENT`가 발생했지만, 임시 설치한 실제 Hermes 경로를 지정한 예제 `doctor`는 통과했습니다. 사용자 환경에 Hermes를 전역 설치하지 않았으며, 실제 Qwen·사내 Jira·Confluence 연결은 확인하지 않았습니다.
 
 ## 적용 시 확인할 사항
 

@@ -16,6 +16,9 @@ export function selectExternal(external, commits, references = []) {
   for (const ref of references) if (ref.startsWith('jira:')) keys.add(ref.slice(5));
   const issues = (external?.issues ?? []).filter(x => keys.has(x.key));
   const urls = new Set(issues.flatMap(x => x.confluenceUrls ?? []));
-  const confluence = (external?.confluence ?? []).filter(x => urls.has(x.url) || references.includes(`confluence:${x.id}`));
+  // Legacy and unavailable issues may not have a complete link inventory.
+  // Missing metadata is not evidence that a previously collected page is unused.
+  const unknownLinks = issues.some(x => !Array.isArray(x.confluenceUrls));
+  const confluence = (external?.confluence ?? []).filter(x => unknownLinks || urls.has(x.url) || references.includes(`confluence:${x.id}`));
   return { issues, confluence };
 }

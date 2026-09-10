@@ -25,6 +25,10 @@ for (const entry of collectKeys(bindings)) {
 }
 if (CONFIG.jira?.enabled) {
   const previous = readState('external.json', {issues:[], confluence:[]});
+  for (const issue of evidence.issues) {
+    const prior = previous.issues.find(x => x.key === issue.key);
+    if (issue.state === 'unavailable' && Array.isArray(prior?.confluenceUrls)) issue.confluenceUrls = prior.confluenceUrls;
+  }
   const merge = (before, next, key) => [...new Map([...before, ...next].map(x => [x[key], x])).values()].sort((a,b) => String(a[key]).localeCompare(String(b[key])));
   const merged = { issues:merge(previous.issues, evidence.issues, 'key'), confluence:merge(previous.confluence, evidence.confluence, 'url') };
   const retained = selectExternal(merged, [...Object.values(entries).flat(), { issues: batch?.issues ?? [] }], references);

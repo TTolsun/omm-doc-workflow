@@ -10,6 +10,7 @@ import { collectChanges } from './changes.mjs';
 import { collectKeys, readContentBlock, citedFiles } from './model.mjs';
 process.env.DOCFLOW_STATE_REL = STATE_REL;
 import { ommCli } from './omm-cli.mjs';
+import { resolveHermesCli } from './hermes-cli.mjs';
 import { snapshot, changedFiles, copySnapshot, prepareCommit, applyCommit, recover, journalPath, acquireLock } from './transaction.mjs';
 
 function outputPolicy(bindings) {
@@ -85,7 +86,7 @@ try {
     console.log('임시 복사본에서 동기화를 시작합니다. 검증 전에는 원본 파일을 바꾸지 않습니다.');
     const r = spawnSync(process.execPath, [path.join(import.meta.dirname, 'sync-worker.mjs'), ...args], {
       cwd: stage, stdio: 'inherit', env: { ...process.env, DOCGEN_STAGED_WORKER: '1', DOCFLOW_PROJECT_ROOT: stage, DOCFLOW_SOURCE_ROOT: stageSource, DOCFLOW_CONFIG: CONFIG_REL, DOCFLOW_CHANGE_FILE: changeFile,
-        DOCGEN_OMM_CLI: ommCli() },
+        DOCGEN_OMM_CLI: ommCli(), DOCFLOW_HERMES_CLI: resolveHermesCli(undefined, REPO_ROOT) },
     });
     if (r.status !== 0) throw new Error(`동기화 실패(${r.status ?? r.error?.code ?? r.signal}). 원본은 변경하지 않았습니다.`);
     const after = snapshot(stage, null, documentRoots);
