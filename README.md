@@ -4,13 +4,13 @@
 
 이 시스템은 Camera HAL처럼 여러 모듈과 변경 이력이 연결된 코드의 문서화를 위한 공용 실행기입니다. 시스템 자체는 독립 저장소에서 관리하며, 각 프로젝트는 코드 경로·문서 목차·연동 설정과 설치할 실행기 버전을 별도로 지정합니다.
 
-## Architecture Intelligence 디자인
+## 읽기 중심의 문서 디자인
 
-**문서에서 구조와 코드 근거를 함께 탐색합니다.** Together AI를 전체 시각적 방향에, Linear를 탐색 메뉴에, Warp를 코드 근거 영역에 반영합니다. 실제 파일 수와 검토 상태를 보여 주며, 근거 없는 신뢰도 수치를 만들지 않습니다.
+**문서를 편하게 읽고, 필요한 코드 근거를 확인합니다.** Mintlify의 문서 구조에 Vercel의 단색 구성을 적용했습니다. 왼쪽 탐색·가운데 본문·오른쪽 목차를 사용하며, 구조도는 설명 순서에 맞춰 배치합니다. 검토 상태와 출처는 실제 기록으로 표시합니다.
 
-![Architecture Intelligence 디자인 예제](docs/preview/preview.png)
+![읽기 중심 문서 디자인 예제](docs/preview/preview.png)
 
-[디자인 규칙](DESIGN.md), [설정과 템플릿 적용법](docs/design.md), [미리보기 HTML 파일](docs/preview/index.html)을 확인하세요. `npm run preview`로 로컬 화면을 열 수 있습니다. 위 화면은 저장소의 작은 C++ 예제를 사용하며 실제 사내 HAL 분석 결과가 아닙니다. 소비 프로젝트에 적용하려면 해당 프로젝트가 `architecture` 프리셋을 선택해야 합니다.
+[디자인 규칙](DESIGN.md), [설정과 템플릿 적용법](docs/design.md), [미리보기 HTML 파일](docs/preview/index.html)을 확인하세요. `npm run preview`로 로컬 화면을 열 수 있습니다. 위 화면은 저장소의 작은 C++ 예제를 사용하며 실제 사내 HAL 분석 결과가 아닙니다. 소비 프로젝트에 적용하려면 해당 프로젝트가 `reading` 프리셋을 선택해야 합니다.
 
 ## 한눈에 보는 실행 흐름
 
@@ -49,7 +49,7 @@ flowchart TD
 | 첨부 그림 | 출처 링크 수집 또는 제외 | `jira.attachments` |
 | 설계 근거 | Jira에 연결된 Confluence 문서를 추가 수집 | `confluence.enabled` |
 | 문서 목차 | 프로젝트가 지정한 페이지·구조·원고 블록 | 바인딩 파일 |
-| 시각적 형식 | Architecture Intelligence, Slack, plain 또는 프로젝트 CSS | `design.preset` |
+| 시각적 형식 | reading, Architecture Intelligence, Slack, plain 또는 프로젝트 CSS | `design.preset` |
 | 사실 추출 | 기본값 없이 시작하거나 프로젝트용 추출기 연결 | `factsAdapter` |
 | 실행 시점 | 수동 실행 또는 기존 미러링 작업의 성공 후 호출 | 외부 작업 스케줄러·CI |
 | 배포 | 생성 파일을 프로젝트의 기존 배포 과정에 전달 | 프로젝트별 CI |
@@ -98,7 +98,7 @@ flowchart LR
 
 ## 문서 작성 원칙
 
-배포 사이트의 기본 예제는 [Architecture Intelligence 디자인](DESIGN.md)을 따릅니다. **[디자인 설정](docs/design.md)을 바꾸면 다른 형식으로 전환할 수 있습니다.** GitHub README 자체의 색상은 GitHub가 정하며, 테마 CSS는 문서 사이트에 적용됩니다.
+배포 사이트의 기본 예제는 [읽기 중심 디자인](DESIGN.md)을 따릅니다. **[디자인 설정](docs/design.md)을 바꾸면 다른 형식으로 전환할 수 있습니다.** GitHub README 자체의 색상은 GitHub가 정하며, 테마 CSS는 문서 사이트에 적용됩니다.
 
 모든 원고는 [공통 집필 규칙](style/README.md)을 따릅니다. [i-have-adhd](https://github.com/ayghri/i-have-adhd)와 [fluent-korean](https://github.com/snflkd/fluent-korean)의 원문과 라이선스를 저장소에 보관하고 집필 프롬프트에 전달합니다.
 

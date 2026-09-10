@@ -1,8 +1,9 @@
 // Static evidence explorer. This does not call a model or infer architecture facts.
-const enabled =
-  getComputedStyle(document.documentElement)
-    .getPropertyValue("--doc-design")
-    .trim() === "architecture";
+const preset = getComputedStyle(document.documentElement)
+  .getPropertyValue("--doc-design")
+  .trim();
+const reading = preset === "reading";
+const enabled = reading || preset === "architecture";
 if (enabled) {
   const main = document.querySelector("main"),
     nav = document.querySelector('nav[aria-label="문서 메뉴"]');
@@ -24,7 +25,7 @@ if (enabled) {
     brand.href = nav.querySelector("a").href;
     brand.append(
       element("span", "atlas-mark", "⌘"),
-      element("span", "", "Architecture Intelligence"),
+      element("span", "", reading ? "개발자 문서" : "Architecture Intelligence"),
     );
     header.append(
       brand,
@@ -33,17 +34,26 @@ if (enabled) {
     const shell = element("div", "atlas-shell"),
       sidebar = element("aside", "atlas-sidebar");
     sidebar.setAttribute("aria-label", "문서 탐색");
-    sidebar.append(element("span", "atlas-section-label", "EXPLORE"), nav);
+    sidebar.append(
+      element("span", "atlas-section-label", reading ? "문서" : "EXPLORE"),
+      nav,
+    );
     const outline = element("nav", "atlas-outline");
     outline.setAttribute("aria-label", "현재 페이지 목차");
-    outline.append(element("span", "atlas-section-label", "ON THIS PAGE"));
+    outline.append(
+      element(
+        "span",
+        "atlas-section-label",
+        reading ? "이 페이지에서" : "ON THIS PAGE",
+      ),
+    );
     main.querySelectorAll("h2").forEach((heading, i) => {
       heading.id ||= `section-${i}`;
       const link = element("a", "", heading.textContent);
       link.href = "#" + heading.id;
       outline.append(link);
     });
-    sidebar.append(outline);
+    if (!reading) sidebar.append(outline);
     const rail = element("aside", "atlas-evidence");
     rail.id = "source-evidence";
     rail.setAttribute("aria-label", "코드 근거와 검토 정보");
@@ -52,12 +62,27 @@ if (enabled) {
       element("p", "", "근거 정보를 불러오는 중입니다."),
     );
     main.before(header, shell);
-    shell.append(sidebar, main, rail);
+    if (reading) {
+      const toc = element("aside", "reading-toc");
+      const fold = element("details");
+      fold.open = !matchMedia("(max-width: 1100px)").matches;
+      fold.append(element("summary", "", "이 페이지 목차"), outline);
+      toc.append(fold);
+      shell.append(sidebar, main, toc);
+      main.append(rail);
+      const sourceLink = element("a", "", "코드 근거와 검토 기록");
+      sourceLink.href = "#source-evidence";
+      outline.append(sourceLink);
+    } else shell.append(sidebar, main, rail);
     const hero = element("section", "atlas-hero");
     hero.setAttribute("aria-label", "문서 상태");
     const title = main.querySelector("h1");
     hero.append(
-      element("p", "atlas-eyebrow", "OMM / ARCHITECTURE INTELLIGENCE"),
+      element(
+        "p",
+        "atlas-eyebrow",
+        reading ? "개발자 가이드" : "OMM / ARCHITECTURE INTELLIGENCE",
+      ),
     );
     if (title) hero.append(title);
     const status = element(
@@ -125,9 +150,14 @@ if (enabled) {
       const link = element("a", "", "위의 주요 구조도 보기 ↑");
       link.href = "#system-blueprint";
       origin.append(link);
-      diagram.before(origin);
+      if (reading) {
+        diagram.before(panel);
+        bar.firstChild.textContent = "구조도";
+      } else {
+        diagram.before(origin);
+        hero.after(panel);
+      }
       panel.append(bar, search, diagram);
-      hero.after(panel);
       return true;
     };
     if (!attachBlueprint()) {
@@ -135,6 +165,109 @@ if (enabled) {
         if (attachBlueprint()) observer.disconnect();
       });
       observer.observe(main, { childList: true, subtree: true });
+    }
+    if (reading) {
+      const searchButton = element(
+        "button",
+        "reading-search-button",
+        "문서 찾기",
+      );
+      searchButton.type = "button";
+      searchButton.append(element("kbd", "", "Ctrl / ⌘ K"));
+      header.append(searchButton);
+      const searchDialog = element("dialog", "reading-search-dialog");
+      searchDialog.setAttribute("aria-labelledby", "reading-search-title");
+      const searchTitle = element("h2", "", "문서 찾기");
+      searchTitle.id = "reading-search-title";
+      const field = element("input");
+      field.type = "search";
+      field.setAttribute("aria-label", "문서 제목과 현재 페이지 목차 검색");
+      const matches = element("div", "reading-search-results");
+      const matchCount = element("p");
+      matchCount.setAttribute("aria-live", "polite");
+      const close = element("button", "", "닫기");
+      close.type = "button";
+      searchDialog.append(
+        searchTitle,
+        element(
+          "p",
+          "",
+          "탐색 메뉴의 문서 제목과 현재 페이지 목차를 검색합니다.",
+        ),
+        field,
+        matchCount,
+        matches,
+        close,
+      );
+      document.body.append(searchDialog);
+      const choices = [
+        ...nav.querySelectorAll("a"),
+        ...outline.querySelectorAll("a"),
+      ].map((link) => ({ title: link.textContent.trim(), href: link.href }));
+      const search = () => {
+        const term = field.value.trim().toLocaleLowerCase();
+        const found = choices.filter((x) =>
+          x.title.toLocaleLowerCase().includes(term),
+        );
+        matches.replaceChildren();
+        matchCount.textContent = `${found.length}개 결과`;
+        for (const choice of found) {
+          const link = element("a", "", choice.title);
+          link.href = choice.href;
+          link.addEventListener("click", () => searchDialog.close());
+          matches.append(link);
+        }
+      };
+      const openSearch = () => {
+        if (document.querySelector("dialog[open]")) return;
+        searchDialog.showModal();
+        search();
+        field.focus();
+      };
+      searchButton.addEventListener("click", openSearch);
+      field.addEventListener("input", search);
+      close.addEventListener("click", () => searchDialog.close());
+      searchDialog.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          searchDialog.close();
+        }
+      });
+      searchDialog.addEventListener("close", () =>
+        searchButton.focus({ preventScroll: true }),
+      );
+      document.addEventListener("keydown", (event) => {
+        if (
+          (event.ctrlKey || event.metaKey) &&
+          event.key.toLowerCase() === "k"
+        ) {
+          event.preventDefault();
+          openSearch();
+        }
+      });
+      const links = [...nav.querySelectorAll("a")];
+      const normalize = (url) =>
+        new URL(url).pathname.replace(/\/index\.html$/, "/");
+      const current = links.findIndex(
+        (link) => normalize(link.href) === normalize(location.href),
+      );
+      const pagination = element("nav", "reading-pagination");
+      pagination.setAttribute("aria-label", "이전 문서와 다음 문서");
+      for (const [offset, label] of [
+        [-1, "← 이전"],
+        [1, "다음 →"],
+      ]) {
+        const target = current >= 0 ? links[current + offset] : null;
+        if (!target) continue;
+        const link = element(
+          "a",
+          "",
+          `${label} · ${target.textContent.trim()}`,
+        );
+        link.href = target.href;
+        pagination.append(link);
+      }
+      if (pagination.childElementCount) main.append(pagination);
     }
     try {
       const response = await fetch(
@@ -168,20 +301,43 @@ if (enabled) {
       stat(record.files.length, "SOURCE FILES", "개");
       stat(record.sourceGroups.length, "MODEL VIEWS", "개");
       stat(`${record.reviewedCount}/${record.reviewCount}`, "REVIEWED ITEMS");
-      rail.replaceChildren(element("h2", "", "SOURCE EVIDENCE"));
+      rail.replaceChildren(
+        element(
+          "h2",
+          "",
+          reading ? "코드 근거와 검토 기록" : "SOURCE EVIDENCE",
+        ),
+      );
+      if (reading) {
+        const scopeInfo = hero.querySelector(".atlas-scope");
+        rail.append(scopeInfo, stats);
+        const date = element(
+          "span",
+          "reading-review-date",
+          record.reviewedAt
+            ? `검토 기록 ${record.reviewedAt}`
+            : "검토 기록 없음",
+        );
+        status.after(date);
+      }
       const dl = element("dl");
       const detail = (name, value) => {
         dl.append(element("dt", "", name), element("dd", "", value));
       };
-      detail("SCOPE", scope);
-      detail("REVIEWED", record.reviewedAt ?? "검토 기록 없음");
+      detail(reading ? "집계 범위" : "SCOPE", scope);
       detail(
-        "CODE REVISION",
+        reading ? "검토 기록" : "REVIEWED",
+        record.reviewedAt ?? "검토 기록 없음",
+      );
+      detail(
+        reading ? "검토 기준 커밋" : "CODE REVISION",
         record.reviewedCommits.join(" · ") || "검토 기준 없음",
       );
-      detail("EVIDENCE LEVEL", "코드 근거와 검토 기록");
+      detail(reading ? "근거 유형" : "EVIDENCE LEVEL", "코드 근거와 검토 기록");
       rail.append(dl);
-      rail.append(element("h3", "", "SOURCE GROUPS"));
+      rail.append(
+        element("h3", "", reading ? "연결된 구조 관점" : "SOURCE GROUPS"),
+      );
       for (const group of record.sourceGroups) {
         const p = element("p");
         p.append(
@@ -190,7 +346,7 @@ if (enabled) {
         );
         rail.append(p);
       }
-      rail.append(element("h3", "", "FIND SOURCE"));
+      rail.append(element("h3", "", reading ? "근거 파일" : "FIND SOURCE"));
       const input = element("input");
       input.type = "search";
       input.placeholder = "파일명 또는 경로";
@@ -266,7 +422,11 @@ if (enabled) {
       status.textContent = "코드 근거 정보를 확인할 수 없습니다.";
       status.dataset.state = "missing";
       rail.replaceChildren(
-        element("h2", "", "SOURCE EVIDENCE"),
+        element(
+          "h2",
+          "",
+          reading ? "코드 근거와 검토 기록" : "SOURCE EVIDENCE",
+        ),
         element(
           "p",
           "",

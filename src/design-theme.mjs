@@ -1,18 +1,47 @@
 // Visual presentation is independent from manuscript evidence and review hashes.
 export function renderDesign(design, readFile) {
-  if (!['architecture','slack','plain','custom'].includes(design.preset)) throw new Error('Unknown design preset');
-  if (design.preset === 'architecture') return readFile('@architecture.css');
-  if (design.preset === 'custom') {
-    const css = readFile(design.stylesheet).replaceAll('\r\n','\n');
-    if (!css.trim()) throw new Error('Custom stylesheet is empty');
-    return css.trimEnd() + '\n';
+  if (
+    !["reading", "architecture", "slack", "plain", "custom"].includes(
+      design.preset,
+    )
+  )
+    throw new Error("Unknown design preset");
+  if (design.preset === "reading") return readFile("@reading.css");
+  if (design.preset === "architecture") return readFile("@architecture.css");
+  if (design.preset === "custom") {
+    const css = readFile(design.stylesheet).replaceAll("\r\n", "\n");
+    if (!css.trim()) throw new Error("Custom stylesheet is empty");
+    return css.trimEnd() + "\n";
   }
-  const slack = design.preset === 'slack';
-  const palette = {primary: slack?'#4a154b':'#243247', ink:'#1d1d1d', muted:'#696969', link:slack?'#1264a3':'#174c83', cream:slack?'#f4ede4':'#f4f5f7', lavender:slack?'#f9f0ff':'#f7f8fa', border:'#e6e6e6', ...design.colors};
-  for (const [key,value] of Object.entries(palette)) {
-    if (!['primary','ink','muted','link','cream','lavender','border'].includes(key) || !/^#[0-9a-f]{6}$/i.test(value)) throw new Error(`Invalid design color: ${key}`);
+  const slack = design.preset === "slack";
+  const palette = {
+    primary: slack ? "#4a154b" : "#243247",
+    ink: "#1d1d1d",
+    muted: "#696969",
+    link: slack ? "#1264a3" : "#174c83",
+    cream: slack ? "#f4ede4" : "#f4f5f7",
+    lavender: slack ? "#f9f0ff" : "#f7f8fa",
+    border: "#e6e6e6",
+    ...design.colors,
+  };
+  for (const [key, value] of Object.entries(palette)) {
+    if (
+      ![
+        "primary",
+        "ink",
+        "muted",
+        "link",
+        "cream",
+        "lavender",
+        "border",
+      ].includes(key) ||
+      !/^#[0-9a-f]{6}$/i.test(value)
+    )
+      throw new Error(`Invalid design color: ${key}`);
   }
-  const vars=Object.entries(palette).map(([k,v])=>`--doc-${k}:${v}`).join(';');
+  const vars = Object.entries(palette)
+    .map(([k, v]) => `--doc-${k}:${v}`)
+    .join(";");
   return `/* Generated document theme: ${design.preset}. Change project design configuration. */
 :root{${vars};color-scheme:light}
 *{box-sizing:border-box}

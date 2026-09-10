@@ -32,50 +32,61 @@ test("design selection changes CSS independently and rejects invalid custom conf
   );
 });
 
-test("architecture manifest reports real coverage and distinguishes stale code from review", async (t) => {
-  const f = makeFixture();
-  t.after(f.cleanup);
-  f.put(
-    "app/src/main/java/dev/halcamera/Probe.kt",
-    "package dev.halcamera\nobject Probe { const val OBSERVE_MS = 10000L }\n",
-  );
-  const config = JSON.parse(fs.readFileSync(path.join(f.root, "docflow.json")));
-  config.design = { preset: "architecture" };
-  config.projectName = "Probe";
-  f.put("docflow.json", JSON.stringify(config));
-  const run = await runSync(f.root, {
-    DOCGEN_OLLAMA_URL: "http://127.0.0.1:1",
+for (const preset of ["architecture", "reading"])
+  test(`${preset} manifest reports real coverage and distinguishes stale code from review`, async (t) => {
+    const f = makeFixture();
+    t.after(f.cleanup);
+    f.put(
+      "app/src/main/java/dev/halcamera/Probe.kt",
+      "package dev.halcamera\nobject Probe { const val OBSERVE_MS = 10000L }\n",
+    );
+    const config = JSON.parse(
+      fs.readFileSync(path.join(f.root, "docflow.json")),
+    );
+    config.design = { preset };
+    config.projectName = "Probe";
+    f.put("docflow.json", JSON.stringify(config));
+    const run = await runSync(f.root, {
+      DOCGEN_OLLAMA_URL: "http://127.0.0.1:1",
+    });
+    assert.equal(run.code, 0, run.out);
+    assert.match(
+      fs.readFileSync(
+        path.join(f.root, "docs/guide/assets/docflow-design.css"),
+        "utf8",
+      ),
+      new RegExp(`--doc-design: ${preset}`),
+    );
+    assert(fs.existsSync(path.join(f.root, "docs/guide/assets/docflow-ui.js")));
+    const output = path.join(f.root, "docs/guide/assets/docflow-evidence.json");
+    const data = JSON.parse(fs.readFileSync(output));
+    assert.equal(data.projectEvidence.files.length, 1);
+    assert.equal(data.projectEvidence.status, "fresh");
+    assert.equal(data.projectEvidence.reviewedCount, 2);
+    assert.equal(data.pages["probe.html"].citationCount, 1);
+    assert.equal("confidence" in data.projectEvidence, false);
+    assert.equal("analyzedAt" in data.projectEvidence, false);
+    f.put(
+      "app/src/main/java/dev/halcamera/Probe.kt",
+      "package dev.halcamera\nobject Probe { const val OBSERVE_MS = 14000L }\n",
+    );
+    const checked = spawnSync(
+      process.execPath,
+      [path.join(f.root, "tools/docgen/inspect.mjs"), "--check"],
+      { cwd: f.root, encoding: "utf8" },
+    );
+    assert.equal(checked.status, 1);
+    const updated = spawnSync(
+      process.execPath,
+      [path.join(f.root, "tools/docgen/inspect.mjs")],
+      { cwd: f.root, encoding: "utf8" },
+    );
+    assert.equal(updated.status, 0, updated.stderr);
+    assert.equal(
+      JSON.parse(fs.readFileSync(output)).projectEvidence.status,
+      "stale",
+    );
   });
-  assert.equal(run.code, 0, run.out);
-  const output = path.join(f.root, "docs/guide/assets/docflow-evidence.json");
-  const data = JSON.parse(fs.readFileSync(output));
-  assert.equal(data.projectEvidence.files.length, 1);
-  assert.equal(data.projectEvidence.status, "fresh");
-  assert.equal(data.projectEvidence.reviewedCount, 2);
-  assert.equal(data.pages["probe.html"].citationCount, 1);
-  assert.equal("confidence" in data.projectEvidence, false);
-  assert.equal("analyzedAt" in data.projectEvidence, false);
-  f.put(
-    "app/src/main/java/dev/halcamera/Probe.kt",
-    "package dev.halcamera\nobject Probe { const val OBSERVE_MS = 14000L }\n",
-  );
-  const checked = spawnSync(
-    process.execPath,
-    [path.join(f.root, "tools/docgen/inspect.mjs"), "--check"],
-    { cwd: f.root, encoding: "utf8" },
-  );
-  assert.equal(checked.status, 1);
-  const updated = spawnSync(
-    process.execPath,
-    [path.join(f.root, "tools/docgen/inspect.mjs")],
-    { cwd: f.root, encoding: "utf8" },
-  );
-  assert.equal(updated.status, 0, updated.stderr);
-  assert.equal(
-    JSON.parse(fs.readFileSync(output)).projectEvidence.status,
-    "stale",
-  );
-});
 
 test("design failure preserves source, generated pages and review state", async (t) => {
   const f = makeFixture();

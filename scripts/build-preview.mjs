@@ -20,7 +20,7 @@ try {
   const config = JSON.parse(fs.readFileSync(path.join(stage, "docflow.json")));
   config.projectName = "Camera HAL · 디자인 예제";
   config.sourceRoot = path.join(root, "fixtures/camera-hal");
-  config.design = { preset: "architecture" };
+  config.design = { preset: "reading" };
   fs.writeFileSync(path.join(stage, "docflow.json"), JSON.stringify(config));
   for (const command of [
     "extract",
