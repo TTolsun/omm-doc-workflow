@@ -1,3 +1,8 @@
+---
+title: 요청 수용 조건
+layout: default
+---
+
 # 요청 수용 조건
 
 **먼저 RequestQueue.h의 kBufferLimit과 RequestQueue.cpp의 canAccept를 함께 확인하세요.** 이 페이지는 실행기 시험용 예제이며 실제 제품의 HAL 설계 문서가 아닙니다.

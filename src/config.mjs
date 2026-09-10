@@ -12,7 +12,7 @@ export function within(root, rel) {
 export const CONFIG = JSON.parse(fs.readFileSync(within(PROJECT_ROOT, CONFIG_REL), 'utf8'));
 if (CONFIG.version !== 1) throw new Error('docflow.json version must be 1');
 for (const name of ['factsAdapter', 'factsRenderer', 'styleDir']) if (CONFIG[name]) within(PROJECT_ROOT, CONFIG[name]);
-if (CONFIG.design && !['slack', 'plain', 'custom'].includes(CONFIG.design.preset)) throw new Error('design.preset must be slack, plain or custom');
+if (CONFIG.design && !['architecture', 'slack', 'plain', 'custom'].includes(CONFIG.design.preset)) throw new Error('design.preset must be architecture, slack, plain or custom');
 for (const name of ['reference', 'stylesheet']) if (CONFIG.design?.[name]) within(PROJECT_ROOT, CONFIG.design[name]);
 if (CONFIG.design?.preset === 'custom' && !CONFIG.design.stylesheet) throw new Error('custom design requires a stylesheet');
 export const SOURCE_ROOT = path.resolve(process.env.DOCFLOW_SOURCE_ROOT ?? path.resolve(PROJECT_ROOT, CONFIG.sourceRoot ?? '.'));

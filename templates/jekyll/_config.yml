@@ -1,0 +1,14 @@
+title: Architecture Intelligence
+lang: ko
+navigation:
+  - title: 아키텍처
+    url: /architecture.html
+exclude:
+  - _bindings.yaml
+  - _content
+  - AGENTS.md
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: default

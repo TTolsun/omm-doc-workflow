@@ -1,6 +1,7 @@
 // Visual presentation is independent from manuscript evidence and review hashes.
 export function renderDesign(design, readFile) {
-  if (!['slack','plain','custom'].includes(design.preset)) throw new Error('Unknown design preset');
+  if (!['architecture','slack','plain','custom'].includes(design.preset)) throw new Error('Unknown design preset');
+  if (design.preset === 'architecture') return readFile('@architecture.css');
   if (design.preset === 'custom') {
     const css = readFile(design.stylesheet).replaceAll('\r\n','\n');
     if (!css.trim()) throw new Error('Custom stylesheet is empty');

@@ -13,6 +13,7 @@ export function makeFixture(blocks = 1) {
   fs.cpSync(path.join(import.meta.dirname, '../src'), path.join(root, 'tools/docgen'), { recursive: true,
     filter: p => !['node_modules', 'state'].includes(path.basename(p)) });
   fs.cpSync(path.join(import.meta.dirname, '../style'), path.join(root, 'tools/docgen/style'), {recursive:true});
+  fs.cpSync(path.join(import.meta.dirname, '../assets'), path.join(root, 'tools/assets'), {recursive:true});
   put('docflow.json', JSON.stringify({version:1,sourceRoot:'.',bindings:'docs/guide/_bindings.yaml',stateDir:'tools/docgen/state',styleDir:'tools/docgen/style',agent:{kind:'ollama',model:'qwen3.5:4b'}}));
   put(probeFile, 'package dev.halcamera\nobject Probe { const val OBSERVE_MS = 10000L }\n');
   put('app/build.gradle.kts', 'android { namespace = "dev.halcamera" }\n');

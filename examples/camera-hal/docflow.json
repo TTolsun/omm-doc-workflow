@@ -11,5 +11,5 @@
   "changes": { "mode": "working-tree" },
   "jira": { "enabled": false },
   "confluence": { "enabled": false },
-  "design": { "preset": "slack" }
+  "design": { "preset": "architecture" }
 }

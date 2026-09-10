@@ -114,6 +114,7 @@ try {
   console.log('4/4 검증과 문서 생성');
   if (!dryRun) {
     console.log(runNode('verify.mjs'));
+    console.log(runNode('inspect.mjs'));
     console.log(runNode('generate.mjs'));
     console.log(runNode('design.mjs'));
   } else console.log('[dry-run] 실제 변경 없음');
