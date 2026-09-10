@@ -1,0 +1,34 @@
+version: 2
+site:
+  root: docs
+  content_dir: _content
+  inputs_dir: _inputs
+sources:
+  request-flow:
+    kind: omm
+    evidence:
+      - "**/*.cpp"
+      - "**/*.h"
+pages:
+  architecture.md:
+    title: 요청 수용 조건
+    blocks:
+      - id: status
+        kind: status
+      - id: diagram
+        kind: omm
+        source: request-flow
+        field: diagram
+        confidence: code
+      - id: overview
+        kind: content
+        based_on: [request-flow]
+        confidence: code
+        brief:
+          reader: Camera HAL 코드를 읽고 수정하는 개발자
+          answers:
+            - canAccept는 어떤 조건에서 true 또는 false를 반환하는가
+            - 조건의 상수는 어느 파일에서 정의하는가
+          must_link: [canAccept, kBufferLimit]
+          forbid:
+            - 실제 기기의 Camera HAL 동작으로 설명하지 않습니다.
