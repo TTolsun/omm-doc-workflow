@@ -133,10 +133,8 @@ function renderStatus(page, def) {
     const key = `content:${page}/${id}`;
     rows.push(`| 원고 ${code(id)} | ${STATE_LABEL[observedState(key)]} | ${acceptedNote(key) ?? "—"} |`);
   }
-  const build = facts["build-facts"] ?? {};
-  const version = build.versionName ? `${build.versionName} (versionCode ${build.versionCode ?? "?"})` : "확인 필요";
   return [
-    ...(facts['build-facts'] ? [`- 검증 기준 앱 버전: ${version}`, ""] : []),
+    ...(projectRenderer?.renderStatus ? [projectRenderer.renderStatus({ facts, code, evidenceLine }), ''] : []),
     "| 항목 | 최신성 | 검토 |",
     "| --- | --- | --- |",
     ...rows,

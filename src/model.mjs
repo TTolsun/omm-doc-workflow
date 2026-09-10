@@ -8,6 +8,7 @@ import path from "node:path";
 import { globFiles, hashFiles, hashText, repoPath, readOmmField, ommExists, ommChildren } from "./lib.mjs";
 import { parseYaml } from "./yaml-lite.mjs";
 import { CONFIG, SOURCE_ROOT, STATE_DIR, sourcePath } from './config.mjs';
+import { selectCommits, selectExternal } from './evidence-scope.mjs';
 
 export const OMM_FIELDS = ["description", "diagram", "constraint", "concern", "context", "todo", "note"];
 
@@ -32,12 +33,24 @@ export function readWritingStyle() {
   ).join('\n\n');
 }
 
-export function externalEvidenceText() {
+export function evidenceScope(bindings, entry) {
+  if (entry.kind === 'omm') return { patterns: entry.evidence, references: [] };
+  const meta = readContentBlock(bindings, entry.page, entry.block)?.meta;
+  return { patterns: [...(entry.block.based_on ?? []).flatMap(name => bindings.sources[name]?.evidence ?? []), ...citedFiles(meta)],
+    references: Array.isArray(meta?.references) ? meta.references.map(String) : [] };
+}
+
+export function externalEvidenceText(bindings, entry) {
   if (!CONFIG.jira?.enabled && CONFIG.changes?.mode !== 'commits') return '';
-  return ['batch.json', 'external.json'].map(name => {
+  const read = (name, fallback) => {
     const file = path.join(STATE_DIR, name);
-    return name + '\n' + (fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '(없음)');
-  }).join('\n\n');
+    return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : fallback;
+  };
+  const scope = evidenceScope(bindings, entry);
+  const saved = read('scopes.json', { entries: {} }).entries[entry.key];
+  const commits = selectCommits(saved ? { commits: saved } : read('batch.json', null), scope.patterns);
+  const external = CONFIG.jira?.enabled ? selectExternal(read('external.json', {}), commits, scope.references) : { issues: [], confluence: [] };
+  return commits.length || external.issues.length || external.confluence.length ? JSON.stringify({ commits, ...external }) : '';
 }
 
 export function externalReferences() {
@@ -144,7 +157,7 @@ export function computeHashes(bindings, entry) {
     const files = globFiles(entry.evidence);
     return {
       codeHash: hashFiles(files),
-      modelHash: hashText(ommModelText(entry.source) + externalEvidenceText()),
+      modelHash: hashText(ommModelText(entry.source) + externalEvidenceText(bindings, entry)),
       fileCount: files.length,
       exists: ommExists(entry.source),
     };
@@ -168,7 +181,8 @@ export function computeHashes(bindings, entry) {
   }
   modelParts.push("writing-style\u0000" + readWritingStyle());
   modelParts.push("brief\u0000" + JSON.stringify(entry.block));
-  if (externalEvidenceText()) modelParts.push('external-evidence\u0000' + externalEvidenceText());
+  const external = externalEvidenceText(bindings, entry);
+  if (external) modelParts.push('external-evidence\u0000' + external);
   const factsFile = path.join(STATE_DIR, 'facts.json');
   modelParts.push("facts\u0000" + (fs.existsSync(factsFile) ? fs.readFileSync(factsFile, "utf8") : "(missing)"));
   return {

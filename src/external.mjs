@@ -90,6 +90,7 @@ export async function collectExternal(config, batch, fetcher = fetch) {
       const fields = raw.fields ?? {};
       issues.push({ key, url: `${config.jira.baseUrl.replace(/\/$/, '')}/browse/${key}`, title: fields.summary,
         updated: fields.updated, status: fields.status?.name, sections: issueSections(fields, config.jira.fields),
+        confluenceUrls: confluenceLinks(raw, config.confluence),
         attachments: (config.jira.attachments === 'ignore' ? [] : fields.attachment ?? []).map(a => ({ id: a.id, filename: a.filename, mimeType: a.mimeType,
           url: a.content, state: 'linked-not-inspected' })), evidenceKind: 'issue-report', state: 'available' });
       for (const url of confluenceLinks(raw, config.confluence)) {
