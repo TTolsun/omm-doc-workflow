@@ -50,6 +50,9 @@ test('doctor distinguishes missing Hermes executable from an unsupported CLI con
   assert.equal(r.code, 1); assert.match(r.out, /--query-file 지원/);
   f.put('hermes-test.mjs', 'console.log("--query-file")');
   r = runCli(f.root, 'doctor', [], { DOCFLOW_HERMES_CLI: path.join(f.root, 'hermes-test.mjs') });
+  assert.equal(r.code, 1); assert.match(r.out, /--reasoning 지원/);
+  f.put('hermes-test.mjs', 'console.log("--query-file --reasoning")');
+  r = runCli(f.root, 'doctor', [], { DOCFLOW_HERMES_CLI: path.join(f.root, 'hermes-test.mjs') });
   assert.equal(r.code, 0, r.out);
 });
 
@@ -57,7 +60,7 @@ test('Windows doctor discovers a cmd shim on PATH, including paths with spaces',
   const f = makeFixture(); t.after(f.cleanup);
   const config = JSON.parse(fs.readFileSync(path.join(f.root, 'docflow.json')));
   config.agent.kind = 'hermes'; f.put('docflow.json', JSON.stringify(config));
-  f.put('shim folder/hermes.cmd', '@echo off\r\necho --query-file\r\n');
+  f.put('shim folder/hermes.cmd', '@echo off\r\necho --query-file --reasoning\r\n');
   const r = runCli(f.root, 'doctor', [], { DOCFLOW_HERMES_CLI: 'hermes', PATH: path.join(f.root, 'shim folder') + path.delimiter + process.env.PATH });
   assert.equal(r.code, 0, r.out);
 });

@@ -1,6 +1,25 @@
 # 공용 엔진 변경·배포 기록
 
-**0.3.1은 로컬 검증을 마친 수정본입니다. 소비 프로젝트 설치와 원격 배포는 수행하지 않았습니다.** 프로젝트에는 별도로 검증한 공용 엔진 버전을 설치해 호출해야 합니다.
+**0.3.2는 로컬 검증을 마친 수정본입니다. 소비 프로젝트 설치와 원격 배포는 수행하지 않았습니다.** 프로젝트에는 별도로 검증한 공용 엔진 버전을 설치해 호출해야 합니다.
+
+## 0.3.2 · 2026-09-16
+
+열린 이슈 #10을 Hermes 0.21.1 소스와 실제 CLI 실행으로 대조했습니다. 검토 승인과 checkpoint는 변경하지 않으며, Ollama 직접 호출 경로는 바꾸지 않았습니다.
+
+| 이슈 | 확인 결과와 처리 |
+| --- | --- |
+| [#10: Hermes 추론 기본값과 stdout 해석](https://github.com/TTolsun/omm-doc-workflow/issues/10) | 원인을 확인했습니다. Hermes의 `custom` 제공자는 추론 수준이 없으면 요청에 `reasoning_effort`를 넣지 않아 서버 기본값이 적용되고, Qwen3 계열 서버는 기본적으로 추론을 켭니다. 일회성 프로필의 `agent.reasoning_effort: none`과 실행 인수 `--reasoning none`을 함께 지정하여 요청에 `reasoning_effort: "none"`을 보냅니다. Ollama 주소(11434)에서는 Hermes가 `think: false`도 함께 보냅니다. 같은 프로필에서 `auxiliary.title_generation.enabled: false`로 세션 제목용 추가 모델 호출을 껐습니다. stdout 해석은 출력을 끝맺는 JSON 객체, 마지막 코드 펜스, 다른 문장이 뒤따르는 첫 JSON 객체 순으로 찾도록 바꿨고, JSON 객체가 없거나 종료 코드가 0이 아니면 `DOCFLOW_AGENT_ATTEMPTS`(기본 3회)까지 다시 실행합니다. 실행 파일 누락, 안전하지 않은 인수, 시간 초과는 다시 실행하지 않습니다. `doctor`는 `--reasoning` 도움말 표기도 검사합니다. |
+
+Hermes 0.21.1의 커밋 `564aef2946c436500a5e80ee117b66b789b3f99a`에서 `hermes_cli/_parser.py`의 `chat --reasoning`, `hermes_constants.py`의 `resolve_reasoning_config`, `plugins/model-providers/custom/__init__.py`의 `reasoning_effort` 변환, `agent/title_generator.py`의 `auxiliary.title_generation.enabled`를 대조했습니다. `test/hermes-real.test.mjs`는 실제 CLI가 보낸 요청에 `reasoning_effort: "none"`이 있고 세션 제목 요청이 없음을 검사합니다.
+
+0.3.2 검증 결과는 다음과 같습니다.
+
+- Windows와 Node 24.18.0에서 `DOCFLOW_REAL_HERMES_CLI`에 임시 설치한 Hermes 0.21.1을 지정하여 `npm test`를 실행했습니다. 47개 중 45개가 통과했고, 실제 Qwen이 필요한 2개는 실행 조건이 없어 건너뛰었습니다. 수정 전 같은 검사에서 실제 CLI가 보낸 요청에는 `reasoning_effort`가 없었고 세션 제목 요청이 하나 더 있었습니다.
+- 로컬 Ollama 0.34.0의 `qwen3.5:4b`에 `/v1/chat/completions`를 직접 호출하여 비교했습니다. 추론 인수가 없으면 출력 549토큰에 35.9초가 걸렸고 추론 내용이 포함됐습니다. `reasoning_effort: "none"`은 출력 6토큰에 0.4초였습니다. `/v1`에 `think: false`만 보내면 무시되어 추론이 유지됐습니다.
+- 같은 Ollama와 Hermes로 13,345자 프롬프트를 실행했습니다. 수정 전 코드는 286.4초 뒤 `Unexpected non-whitespace character after JSON`으로 실패했고, 수정 후 코드는 36.3초에 11개 함수 요약 JSON을 반환했습니다. 4B 모델의 로컬 결과이므로 이슈의 27B 모델 소요 시간과 같지 않습니다.
+- 모의 실행 파일로 안내 문구 뒤의 JSON, JSON 뒤의 설명 문장, 빈 응답 재시도, 종료 코드 1 재시도, 재시도 소진, 시간 초과 즉시 실패, `DOCFLOW_AGENT_ATTEMPTS=1`을 검사했습니다. 예제의 `doctor`, `sync --dry-run`, `generate --check`와 `git diff --check`도 통과했습니다. 실제 Qwen 27B 서버와 사내 서비스 실접속은 확인하지 않았습니다.
+
+적용 시 확인할 사항은 다음과 같습니다. `DOCGEN_LLM_TIMEOUT_MS`는 실행 1회마다 적용되므로 최대 대기 시간은 `DOCFLOW_AGENT_ATTEMPTS`와의 곱에 가까울 수 있습니다. 시간 초과 자체는 다시 실행하지 않습니다. 설치된 Hermes가 `chat --reasoning`을 지원하지 않으면 `doctor`와 `sync`가 실패하므로 0.21.1 이상으로 맞춰야 합니다.
 
 ## 0.3.1 · 2026-09-11
 

@@ -7,7 +7,7 @@ import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { makeFixture } from './helper.mjs';
 
-test('real Hermes sends no tool schemas with the isolated docflow profile', {
+test('real Hermes sends no tool schemas and disables reasoning with the isolated docflow profile', {
   skip: !process.env.DOCFLOW_REAL_HERMES_CLI, timeout: 180000,
 }, async t => {
   const f = makeFixture(); t.after(f.cleanup);
@@ -47,5 +47,9 @@ test('real Hermes sends no tool schemas with the isolated docflow profile', {
     assert.equal(data.model, 'qwen-docflow-probe');
     assert.deepEqual(data.tools ?? [], []);
     assert.deepEqual(data.functions ?? [], []);
+    // The custom provider maps --reasoning none to a top-level reasoning_effort so Qwen3 servers skip thinking.
+    assert.equal(data.reasoning_effort, 'none');
   }
+  // The transient profile disables the auxiliary session-title request, which otherwise sends a second model call.
+  assert.deepEqual(calls.filter(call => call.data.response_format?.json_schema?.name === 'session_title'), []);
 });
