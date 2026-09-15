@@ -11,7 +11,7 @@ if (!fs.existsSync(cli)) throw new Error('OMM 0.2.0을 설치하거나 DOCGEN_OM
 if ((CONFIG.agent?.kind ?? 'hermes') === 'hermes') {
   const result = spawnHermes(['chat', '--help'], { encoding: 'utf8', timeout: 10000, windowsHide: true });
   if (result.status !== 0) throw new Error(`Hermes CLI 실행 실패: ${result.error?.code ?? result.status ?? result.signal}. 설치 경로 또는 DOCFLOW_HERMES_CLI를 확인하세요.`);
-  if (!result.stdout.includes('--query-file')) throw new Error('Hermes CLI의 --query-file 지원 여부를 확인하세요.');
+  for (const flag of ['--query-file', '--reasoning']) if (!result.stdout.includes(flag)) throw new Error(`Hermes CLI의 ${flag} 지원 여부를 확인하세요.`);
   console.log('Hermes CLI 계약 확인 완료. 실제 모델 연결은 sync에서 확인합니다.');
 }
 for (const [name, source] of Object.entries(readBindings().sources)) {

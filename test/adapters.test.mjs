@@ -18,6 +18,7 @@ test('Hermes CLI contract passes Qwen profile and rejects agent filesystem write
 const args=process.argv.slice(2); if(!args.includes('--query-file')||!args.includes('--quiet')) process.exit(2);
 const config=JSON.parse(fs.readFileSync(path.join(process.env.HERMES_HOME,'config.yaml')));
 if(args[args.indexOf('--toolsets')+1]!=='file'||JSON.stringify(config.agent.disabled_toolsets)!=='["file"]')process.exit(4);
+if(args[args.indexOf('--reasoning')+1]!=='none'||config.agent.reasoning_effort!=='none')process.exit(5);
 if(config.model.provider!=='custom'||config.model.default!=='Qwen/example'||config.model.base_url!=='http://127.0.0.1:8000/v1') process.exit(3);
 let prompt='';for await(const part of process.stdin)prompt+=part;
 if(process.env.FIXTURE_AGENT_WRITE==='1')fs.writeFileSync('outside.md','unauthorized');
@@ -56,6 +57,43 @@ test('Hermes refuses oversized input before executing the CLI and supports confi
     assert.equal(fs.existsSync(marker), false);
   }
   const result = run('60000'); assert.equal(result.status, 0, result.stderr); assert.equal(fs.existsSync(marker), true);
+});
+
+test('Hermes accepts advisories before the JSON answer and retries empty replies but not timeouts', async t => {
+  const f = makeFixture(); t.after(f.cleanup);
+  const config = JSON.parse(fs.readFileSync(path.join(f.root, 'docflow.json')));
+  config.agent = { kind: 'hermes', model: 'internal-code-model', baseUrl: 'http://127.0.0.1:8000/v1' };
+  f.put('docflow.json', JSON.stringify(config));
+  const calls = path.join(f.root, 'calls.txt');
+  const count = () => fs.existsSync(calls) ? fs.readFileSync(calls, 'utf8').length : 0;
+  f.put('agent-test.mjs', `import fs from 'node:fs'; fs.appendFileSync(${JSON.stringify(calls)}, 'x'); const n = fs.readFileSync(${JSON.stringify(calls)}, 'utf8').length;
+const mode = process.env.FIXTURE_MODE;
+if (mode === 'timeout') { setTimeout(() => {}, 10000); }
+else if (mode === 'empty' && n < 2) console.log('\\u26a0\\ufe0f No reply: the model returned empty content after retries and any fallback providers.');
+else if (mode === 'exhausted') console.log('\\u26a0\\ufe0f No reply: the model returned empty content after retries and any fallback providers.');
+else if (mode === 'exit' && n < 3) { console.error('Error: provider 503'); process.exit(1); }
+else if (mode === 'trailing') console.log('{\\n  "ok": true,\\n  "note": "a } b"\\n}\\n\\n설명: 위 JSON이 결과입니다 { 끝');
+else console.log('  \\u26a0 tirith security scanner enabled but not available\\n\\u0060\\u0060\\u0060json\\n{\\n  "ok": true\\n}\\n\\u0060\\u0060\\u0060');`);
+  const run = env => spawnSync(process.execPath, ['--input-type=module', '-e', `import assert from 'node:assert/strict'; import { runAgent } from './tools/docgen/agent.mjs'; const value = await runAgent('small prompt', {type:'object'}); assert.equal(value.ok, true); if (process.env.FIXTURE_MODE === 'trailing') assert.equal(value.note, 'a } b');`], {
+    cwd: f.root, encoding: 'utf8', env: { ...process.env, DOCFLOW_HERMES_CLI: path.join(f.root, 'agent-test.mjs'), DOCGEN_LLM_TIMEOUT_MS: '2000', ...env },
+  });
+  for (const [mode, status, attempts, pattern] of [
+    ['advisory', 0, 1, /Hermes internal-code-model: /],
+    ['trailing', 0, 1, /Hermes internal-code-model: /],
+    ['empty', 0, 2, /시도 1\/3 실패: JSON 객체 없음/],
+    ['exit', 0, 3, /시도 2\/3 실패: 종료 코드 1 \(Error: provider 503\)/],
+    ['exhausted', 1, 3, /3회 시도 후에도 JSON 응답을 반환하지 않았습니다/],
+    ['timeout', 1, 1, /Hermes 실행 실패: ETIMEDOUT/],
+  ]) {
+    fs.rmSync(calls, { force: true });
+    const result = run({ FIXTURE_MODE: mode });
+    assert.equal(result.status, status, mode + ': ' + result.stderr);
+    assert.equal(count(), attempts, mode);
+    assert.match(result.stdout + result.stderr, pattern, mode);
+  }
+  fs.rmSync(calls, { force: true });
+  const result = run({ FIXTURE_MODE: 'exhausted', DOCFLOW_AGENT_ATTEMPTS: '1' });
+  assert.equal(result.status, 1); assert.equal(count(), 1); assert.match(result.stderr, /1회 시도 후에도/);
 });
 
 test('ordinary staged projects omit unrelated application files but keep supplied evidence', async t => {

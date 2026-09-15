@@ -22,9 +22,11 @@
 
 예제 모델 ID와 URL은 설치된 서버의 값으로 바꿔야 합니다. `agent.kind=ollama`는 로컬 시험에 사용하는 직접 호출 방식입니다. 이 경우 URL은 `/v1` 없는 Ollama 루프백 주소입니다. `hermes`는 지정한 OpenAI 호환 서버를 사용하는 일회성 프로필로 실행합니다. 모델 별칭에 `qwen`이라는 문자열이 없어도 `agent.model`에 지정한 값을 그대로 사용하며, 사용자가 지정한 Qwen을 다른 모델로 대체하지 않습니다. `DOCGEN_QWEN_MODEL`을 함께 설정했다면 `agent.model`과 같아야 합니다.
 
-Hermes에는 명시적으로 `file` 도구 집합을 선택한 뒤 일회성 프로필의 `agent.disabled_toolsets: [file]`로 비활성화합니다. 도구 집합 옵션을 생략하면 기본 도구가 활성화될 수 있으므로 생략하지 않습니다. 설치된 Hermes가 이 비활성화 설정과 `--query-file`을 지원해야 합니다. Windows의 `.cmd` 실행 파일도 탐색하며 실행 경로를 `DOCFLOW_HERMES_CLI`로 지정할 수 있습니다. 구분자가 포함된 상대 경로는 문서 프로젝트를 기준으로 해석하고, 임시 스테이지로 이동하기 전에 절대 경로로 고정합니다. `.cmd` 경로와 인수에 셸 확장 문자가 있으면 실행을 거부합니다. `doctor`는 CLI 실행과 도움말을 검사하며 실제 모델 연결과 도구 비활성화 동작까지 보증하지 않습니다.
+Hermes에는 명시적으로 `file` 도구 집합을 선택한 뒤 일회성 프로필의 `agent.disabled_toolsets: [file]`로 비활성화합니다. 도구 집합 옵션을 생략하면 기본 도구가 활성화될 수 있으므로 생략하지 않습니다. 설치된 Hermes가 이 비활성화 설정과 `--query-file`, `--reasoning`을 지원해야 합니다. Windows의 `.cmd` 실행 파일도 탐색하며 실행 경로를 `DOCFLOW_HERMES_CLI`로 지정할 수 있습니다. 구분자가 포함된 상대 경로는 문서 프로젝트를 기준으로 해석하고, 임시 스테이지로 이동하기 전에 절대 경로로 고정합니다. `.cmd` 경로와 인수에 셸 확장 문자가 있으면 실행을 거부합니다. `doctor`는 CLI 실행과 도움말의 `--query-file`·`--reasoning` 표기를 검사하며 실제 모델 연결과 도구 비활성화 동작까지 보증하지 않습니다.
 
-Hermes 0.21.1의 커밋 `564aef2946c436500a5e80ee117b66b789b3f99a`에서 실제 CLI를 로컬 모의 API에 연결하여, 위 프로필이 보낸 요청에 도구 목록이 없음을 확인했습니다. 다른 설치본은 `DOCFLOW_REAL_HERMES_CLI`에 실행 파일의 절대 경로를 지정하고 `node --test test/hermes-real.test.mjs`로 확인할 수 있습니다. 이 테스트는 실제 Hermes를 실행하지만 모델 응답은 모의 API가 반환하므로 실제 Qwen 접속이나 생성 품질 검증은 아닙니다.
+추론(thinking)은 끕니다. Hermes는 추론 수준이 없으면 요청에 `reasoning_effort`를 보내지 않아 서버 기본값이 적용되는데, Qwen3 계열은 기본적으로 추론을 켜므로 큰 원고에서 `DOCGEN_LLM_TIMEOUT_MS`를 넘겼습니다. 일회성 프로필의 `agent.reasoning_effort: none`과 실행 인수 `--reasoning none`을 함께 지정하여 요청에 `reasoning_effort: "none"`을 보내며, 이는 Ollama 직접 호출의 `think: false`와 같은 역할입니다. 같은 프로필에서 `auxiliary.title_generation.enabled: false`로 세션 제목 생성용 추가 모델 호출도 끕니다. Hermes가 stdout에 보안 스캐너 안내나 `No reply` 설명을 출력해도 출력을 끝맺는 JSON 객체, 마지막 코드 펜스, 다른 문장이 뒤따르는 첫 JSON 객체 순으로 답을 찾으며, JSON 객체가 없거나 종료 코드가 0이 아니면 `DOCFLOW_AGENT_ATTEMPTS`까지 다시 실행합니다. 실행 파일 누락, 안전하지 않은 인수, 시간 초과는 같은 결과가 반복되므로 다시 실행하지 않습니다.
+
+Hermes 0.21.1의 커밋 `564aef2946c436500a5e80ee117b66b789b3f99a`에서 실제 CLI를 로컬 모의 API에 연결하여, 위 프로필이 보낸 요청에 도구 목록이 없고 `reasoning_effort`가 `none`이며 세션 제목 요청이 없음을 확인했습니다. 다른 설치본은 `DOCFLOW_REAL_HERMES_CLI`에 실행 파일의 절대 경로를 지정하고 `node --test test/hermes-real.test.mjs`로 확인할 수 있습니다. 이 테스트는 실제 Hermes를 실행하지만 모델 응답은 모의 API가 반환하므로 실제 Qwen 접속이나 생성 품질 검증은 아닙니다.
 
 ## 커밋과 CSWPR 이슈
 
@@ -88,7 +90,8 @@ Confluence는 지정한 서버와 같은 origin의 링크만 수집합니다. `p
 | `design` | Slack·plain·custom 시각적 형식을 선택합니다. [디자인 안내](design.md)를 참고하세요. |
 | `DOCFLOW_HERMES_CLI` | Hermes 실행 파일의 위치입니다. |
 | `DOCGEN_OMM_CLI` | 고정한 OMM CLI 모듈의 위치입니다. |
-| `DOCGEN_LLM_TIMEOUT_MS` | 모델 호출 제한 시간이며 기본 300초입니다. |
+| `DOCGEN_LLM_TIMEOUT_MS` | 모델 호출 1회의 제한 시간이며 기본 300초입니다. Hermes의 재시도마다 따로 적용됩니다. |
+| `DOCFLOW_AGENT_ATTEMPTS` | Hermes 실행 최대 횟수이며 기본 3회입니다. JSON 객체가 없거나 종료 코드가 0이 아닌 경우에만 다시 실행합니다. |
 | `DOCGEN_MAX_PROMPT_CHARS` | Hermes와 Ollama의 프롬프트 문자 수 제한이며 기본 60,000자입니다. Hermes는 추가한 JSON 출력 계약까지 검사합니다. 모델의 토큰 한도와는 별개입니다. |
 | `DOCGEN_QWEN_CONTEXT` | 직접 Ollama 호출의 컨텍스트이며 기본 32,768토큰입니다. |
 
