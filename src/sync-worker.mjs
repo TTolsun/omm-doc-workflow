@@ -8,7 +8,7 @@ import { collectKeys, contentPath, splitFrontMatter, computeHashes, stateOf, OMM
 import { snapshot as snapshotFiles, changedFiles } from './transaction.mjs';
 import { runAgent } from './agent.mjs';
 import { positiveInt } from './qwen.mjs';
-import { lintManuscript, describeFindings, attachParticles } from './manuscript-lint.mjs';
+import { lintManuscript, describeFindings, attachParticles, unwrapManuscript } from './manuscript-lint.mjs';
 import { CONFIG, sourcePath, SOURCE_ROOT, STATE_REL } from './config.mjs';
 
 const documentRoots = ['.omm', readBindings().site.root, STATE_REL, CONFIG.styleDir].filter(Boolean);
@@ -26,24 +26,27 @@ const runNode = (name, ...extra) => {
 const omm = (...extra) => {
   const cli = process.env.DOCGEN_OMM_CLI;
   if (!cli || !fs.existsSync(cli)) throw new Error('OMM CLI가 없습니다. 설치한 OMM CLI 모듈의 경로를 DOCGEN_OMM_CLI로 지정하세요.');
-  const r = spawnSync(process.execPath, [cli, ...extra], { cwd: REPO_ROOT, encoding: 'utf8', timeout: 30000 });
-  if (r.status !== 0) throw new Error(`omm ${extra[0]} 실패: ${r.stderr || r.stdout || r.error?.message}`);
-};
-// 원고를 감싼 코드 펜스와 앞뒤 공백만 제거합니다. 문자열이 아니면 빈 문자열을 돌려 front matter 검사에서 실패하게 둡니다.
-const unwrapManuscript = value => {
-  if (typeof value !== 'string') return '';
-  const text = value.replace(/\r\n/g, '\n').trim();
-  const fenced = text.match(/^```[a-z]*[ \t]*\n([\s\S]*?)\n[ \t]*```$/);
-  return (fenced ? fenced[1] : text).trim() + '\n';
+  const r = spawnSync(process.execPath, [cli, ...extra], { cwd: REPO_ROOT, encoding: 'utf8', timeout: positiveInt('DOCGEN_OMM_TIMEOUT_MS', 30000) });
+  if (r.status !== 0) {
+    const error = new Error(`omm ${extra[0]} 실패: ${r.stderr || r.stdout || r.error?.message}`);
+    // 실행 자체가 안 된 경우(시간 초과, 스폰 오류)는 모델 응답 품질과 무관하므로 반려 재요청 대상이 아닙니다.
+    error.modelOutput = !r.error && r.status !== null;
+    throw error;
+  }
 };
 // 구조 응답의 형태만 검사합니다. 문제가 있으면 반려 사유 문장을, 없으면 빈 문자열을 돌려줍니다.
 // 모델이 요소를 파일 경로(.omm/request-flow/diagram.mmd, request-flow/)로 적는 경우는 요소 디렉터리가 하나로 정해지므로
-// 요소 경로로 되돌려 받아들입니다. 어느 필드를 쓰는지는 field 값이 정하며 파일 이름은 힌트로 쓰지 않습니다.
+// 요소 경로로 되돌려 받아들입니다. 다만 파일 이름이 field 와 다른 필드를 가리키면 어느 쪽이 맞는지 알 수 없으므로 반려합니다.
 const checkUpdates = (result, elements) => {
   if (!Array.isArray(result.updates)) return 'updates 배열이 없습니다.';
   const seen = new Set();
   for (const update of result.updates) {
+    if (!update || typeof update !== 'object') return `updates 항목이 객체가 아닙니다: ${JSON.stringify(update)}`;
     if (typeof update.element === 'string') {
+      const stem = update.element.match(/\/([^/]+)\.(md|mmd)$/)?.[1];
+      if (stem && OMM_FIELDS.includes(stem) && stem !== update.field) {
+        return `element 의 파일 이름(${stem})과 field(${update.field})가 다른 필드를 가리킵니다. element 에는 요소 경로만 쓰고 field 로 필드를 지정하세요.`;
+      }
       update.element = update.element.replace(/^\.omm\//, '').replace(/\/[^/]+\.(md|mmd)$/, '').replace(/\/+$/, '');
     }
     if (!elements.includes(update.element) || !OMM_FIELDS.includes(update.field) || typeof update.text !== 'string' || !update.text.trim()) {
@@ -54,6 +57,14 @@ const checkUpdates = (result, elements) => {
     seen.add(key);
   }
   return '';
+};
+// 반려 사유를 붙인 프롬프트가 입력 한도를 넘지 않게 맞춥니다. 전체 목록이 들어가면 그대로, 아니면 위반 줄 인용을 뺀 짧은 목록을,
+// 그래도 넘치면 한도에 맞게 자릅니다. agent.mjs 가 뒤에 붙이는 JSON 계약 몫으로 여유를 둡니다.
+const fitRejection = (base, full, short) => {
+  const room = positiveInt('DOCGEN_MAX_PROMPT_CHARS', 60000) - base.length - 1000;
+  if (full.length <= room) return full;
+  if (short.length <= room) return short;
+  return short.slice(0, Math.max(0, room));
 };
 // 반려된 perspective 의 파일을 스냅샷 상태로 되돌립니다. 새로 생긴 파일은 지우고, 바뀐 파일은 원래 바이트로 다시 씁니다.
 const restoreFiles = (before, prefix) => {
@@ -72,7 +83,10 @@ const firstProblem = text => {
 // 계약이 깨지면 본문 검사는 의미가 없으므로 계약 위반만 돌려줍니다.
 const checkManuscript = (markdown, key, sourceFiles) => {
   if (!markdown.startsWith('---\n')) return [{ rule: 'front matter', detail: '원고는 첫 줄 --- 로 시작하는 front matter 를 포함해야 합니다. 코드 펜스로 감싸지 않습니다.' }];
-  const { meta, body } = splitFrontMatter(markdown);
+  // 닫히지 않은 front matter 나 YAML 오류(닫히지 않은 인라인 목록, 탭 들여쓰기)도 모델 응답 문제이므로 반려 사유로 돌려줍니다.
+  let meta, body;
+  try { ({ meta, body } = splitFrontMatter(markdown)); }
+  catch (error) { return [{ rule: 'front matter', detail: `front matter 를 읽을 수 없습니다: ${error.message} 출력 형식의 YAML 을 그대로 따릅니다.` }]; }
   const findings = [];
   if (!body.trim() || !Array.isArray(meta.based_on) || meta.confidence !== key.block.confidence ||
       JSON.stringify([...meta.based_on].sort()) !== JSON.stringify([...(key.block.based_on ?? [])].sort())) {
@@ -150,15 +164,20 @@ try {
         const outside = changedFiles(before, snapshot(REPO_ROOT)).filter(p => !p.startsWith(prefix));
         if (outside.length) throw new Error(`구조 갱신 범위 위반: ${outside.join(', ')}`);
         try { for (const element of elements) omm('validate', element); done = true; }
-        catch (error) { reason = error.message; restoreFiles(before, prefix); }
+        catch (error) {
+          // CLI 시간 초과나 스폰 오류는 다시 요청해도 같으므로 그대로 실패시킵니다. 검증 오류만 반려 사유가 됩니다.
+          if (!error.modelOutput) throw error;
+          reason = error.message; restoreFiles(before, prefix);
+        }
       }
       if (!done) {
         console.log(`  구조 반려 ${attempt}/${attempts}: ${firstProblem(reason)}`);
-        rejection = `\n\n## 이전 응답 반려 사유\n이전 응답은 다음 이유로 반려되었습니다. 같은 근거로 다시 응답하되 아래 문제를 고칩니다.
+        const guide = `\n\n## 이전 응답 반려 사유\n이전 응답은 다음 이유로 반려되었습니다. 같은 근거로 다시 응답하되 아래 문제를 고칩니다.
 - element 는 허용 요소 ${JSON.stringify(elements)} 중 하나를 그대로 씁니다. 파일 이름이나 .omm/ 접두사를 붙이지 않습니다.
 - diagram 필드는 "graph LR" 같은 방향 선언으로 시작하는 Mermaid 전체 내용이어야 합니다. 바뀐 줄만 보내지 않습니다.
 - text 는 해당 필드의 전체 내용입니다.
-반려 이유:\n${reason}`;
+반려 이유:\n`;
+        rejection = fitRejection(prompt, guide + reason, guide + firstProblem(reason));
       }
     }
     if (!done) throw new Error(`구조 스캔이 ${attempts}회 시도 후에도 검증을 통과하지 못했습니다: ${firstProblem(reason)}`);
@@ -175,17 +194,20 @@ try {
     // 로컬 모델은 집필 규칙을 확률적으로만 따릅니다. 계약과 문체 검사를 통과할 때까지 반려 사유를 붙여 다시 요청하고,
     // 횟수를 다 쓰면 원본을 건드리지 않고 실패합니다. 반려는 모델 호출 실패가 아니므로 agent.mjs 의 재시도와 별개입니다.
     const attempts = positiveInt('DOCFLOW_WRITER_ATTEMPTS', 3);
+    const tail = '\n응답은 {"markdown":"front matter를 포함한 전체 원고"} JSON입니다.';
     let accepted, rejection = '', summary = '';
     for (let attempt = 1; attempt <= attempts && accepted === undefined; attempt++) {
-      const result = await qwen(brief + rejection + '\n응답은 {"markdown":"front matter를 포함한 전체 원고"} JSON입니다.', schema({ markdown: { type: 'string' } }));
+      const result = await qwen(brief + rejection + tail, schema({ markdown: { type: 'string' } }));
       // 식별자 뒤 조사 띄어쓰기는 가장 흔한 위반이고 공백 한 칸 제거로 끝나므로 재요청 대신 정리합니다. 정리 횟수는 로그로 남깁니다.
       const { text: markdown, count } = attachParticles(unwrapManuscript(result.markdown));
       if (count) console.log(`  원고 정리: 조사 띄어쓰기 ${count}곳`);
       const findings = checkManuscript(markdown, k, sourceFiles);
       if (!findings.length) { accepted = markdown; break; }
-      ({ summary, list: rejection } = describeFindings(findings));
+      const described = describeFindings(findings);
+      summary = described.summary;
       console.log(`  원고 반려 ${attempt}/${attempts}: ${summary}`);
-      rejection = `\n\n## 이전 응답 반려 사유\n\n이전 응답은 다음 규칙을 어겨 반려되었습니다. 같은 근거로 원고 전체를 다시 쓰되 아래 항목을 모두 고칩니다.\n\n${rejection}`;
+      const guide = '\n\n## 이전 응답 반려 사유\n\n이전 응답은 다음 규칙을 어겨 반려되었습니다. 같은 근거로 원고 전체를 다시 쓰되 아래 항목을 모두 고칩니다.\n\n';
+      rejection = fitRejection(brief + tail, guide + described.list, guide + described.brief);
     }
     if (accepted === undefined) throw new Error(`원고가 ${attempts}회 시도 후에도 집필 규칙을 통과하지 못했습니다: ${summary}`);
     const target = contentPath(bindings, k.page, k.block.id);

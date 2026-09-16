@@ -6,15 +6,17 @@
 //
 // 반환값은 { rule, line, text } 목록입니다. 비어 있으면 통과입니다.
 // sync-worker 는 이 목록을 재집필 프롬프트의 반려 사유로 그대로 넣습니다.
+import { normalizeText } from './text.mjs';
 
-// 식별자·숫자·괄호·백틱 뒤에 한 칸 띄고 붙은 조사. 로컬 모델이 가장 자주 내는 위반이며 공백만 지우면 됩니다.
-const PARTICLE_GAP = /([A-Za-z0-9_)\]`]) (는|은|가|을|를|의|에서|에|와|과|로|으로|보다|부터|까지|도)(?=[\s,.!?)])/g;
+// 식별자·숫자·괄호·백틱·강조 기호 뒤에 한 칸 띄고 붙은 조사. 로컬 모델이 가장 자주 내는 위반이며 공백만 지우면 됩니다.
+const PARTICLE_GAP = /([A-Za-z0-9_)\]`*]) (는|은|가|을|를|의|에서|에|와|과|로|으로|보다|부터|까지|도)(?=[\s,.!?)])/g;
+const INLINE_CODE = /`[^`]*`/g;
 
 const RULES = [
   {
     rule: 'JSON 잔여물',
     detail: '원고 본문에 JSON 포장의 흔적("}, ”}, 이스케이프된 \\n)이 남아 있습니다. markdown 값에는 원고 본문만 넣습니다.',
-    test: line => /["”]\s*}+\s*$/.test(line) || /^\s*}+\s*$/.test(line) || /\\n/.test(line),
+    test: line => /["”]\s*}+\s*$/.test(line) || /^\s*}+\s*$/.test(line) || /\\n/.test(line.replace(INLINE_CODE, ' ')),
   },
   {
     rule: '제목 수준',
@@ -24,7 +26,7 @@ const RULES = [
   {
     rule: '대화체·작업 보고',
     detail: '독자에게 말을 걸거나 다음 단계·검토를 안내하거나 작업을 보고하는 문장은 원고가 아닙니다.',
-    test: line => /(다음 단계로|추가 검토를 요구|검토를 요청|검토를 요구|이 원고는|본 원고는|이 블록은|위 내용은|요청하신|요청에 따라|확인 중이다|확인 중입니다)/.test(line),
+    test: line => /(다음 단계로|추가 검토를 요구|검토를 요청|검토를 요구|이 원고는|본 원고는|요청하신|요청에 따라|확인 중이다|확인 중입니다)/.test(line),
   },
   {
     rule: '원고·근거 언급',
@@ -55,43 +57,58 @@ const RULES = [
   },
 ];
 
+// 코드 블록 밖의 줄만 골라 fn(line, index) 를 적용하고, 코드 블록 안의 줄은 그대로 돌려줍니다.
+// 정리와 검사가 같은 줄을 보도록 펜스 추적을 한 곳에 둡니다.
+function mapProseLines(markdown, fn) {
+  let fenced = false;
+  return normalizeText(markdown).split('\n').map((line, index) => {
+    if (/^\s*```/.test(line)) { fenced = !fenced; return line; }
+    return fenced ? line : fn(line, index);
+  });
+}
+
+// 모델이 원고 전체를 코드 펜스로 감싸거나 앞뒤에 공백을 붙인 경우 그 포장만 벗깁니다. 문자열이 아니면 빈 문자열을 돌려
+// front matter 검사에서 실패하게 둡니다. 안쪽에 코드 블록이 있어도 바깥 펜스는 문자열 끝의 것만 봅니다.
+export function unwrapManuscript(value) {
+  if (typeof value !== 'string') return '';
+  const text = normalizeText(value).trim();
+  const fenced = text.match(/^```[A-Za-z]*[ \t]*\n([\s\S]*?)\n[ \t]*```$/);
+  return (fenced ? fenced[1] : text).trim() + '\n';
+}
+
 // 조사 앞의 공백만 지웁니다. 코드 블록은 건너뛰고 다른 글자는 바꾸지 않으므로 원고의 의미는 그대로입니다.
 // 반환값의 count 는 로그용이며, 0 이면 text 는 입력과 같습니다.
 export function attachParticles(markdown) {
-  let count = 0, fenced = false;
-  const text = markdown.replace(/\r\n/g, '\n').split('\n').map(line => {
-    if (/^\s*```/.test(line)) { fenced = !fenced; return line; }
-    return fenced ? line : line.replace(PARTICLE_GAP, (_, head, particle) => { count++; return head + particle; });
-  }).join('\n');
+  let count = 0;
+  const text = mapProseLines(markdown, line => line.replace(PARTICLE_GAP, (_, head, particle) => { count++; return head + particle; })).join('\n');
   return { text, count };
 }
 
-// 문장 끝만 보기 위해 마침표·물음표·느낌표로 나누고 인라인 코드와 강조 기호를 걷어냅니다.
+// 문장 끝만 보기 위해 마침표·물음표·느낌표(뒤따르는 닫는 괄호·따옴표 포함)로 나누고 인라인 코드와 강조 기호를 걷어냅니다.
 function sentences(line) {
-  const prose = line.replace(/`[^`]*`/g, ' ').replace(/[*_]+/g, '').replace(/^\s*(?:[-*+]|\d+\.)\s+/, '');
-  return prose.split(/[.!?](?=\s|$)/).map(s => s.trim()).filter(Boolean);
+  const prose = line.replace(INLINE_CODE, ' ').replace(/[*_]+/g, '').replace(/^\s*(?:[-*+]|\d+\.)\s+/, '');
+  return prose.split(/[.!?]["”'’)\]]*(?=\s|$)/).map(s => s.trim()).filter(Boolean);
 }
 
 export function lintManuscript(body) {
   const findings = [];
-  let fenced = false;
-  const lines = body.replace(/\r\n/g, '\n').split('\n');
-  lines.forEach((line, index) => {
-    if (/^\s*```/.test(line)) { fenced = !fenced; return; }
-    if (fenced) return;
+  mapProseLines(body, (line, index) => {
     // 제목과 표는 완성 문장이 아니어도 되므로 문장 규칙(종결어미, 조사)은 건너뜁니다. 나머지 규칙은 모든 줄에 적용합니다.
     const prose = !/^\s*#{1,6}\s/.test(line) && !/^\s*\|/.test(line);
     for (const { rule, detail, test, sentence } of RULES) {
       if (sentence && !prose) continue;
       if (test(line)) findings.push({ rule, detail, line: index + 1, text: line.trim() });
     }
+    return line;
   });
   return findings;
 }
 
 // 반려 사유를 사람이 읽는 한 줄과 재집필 프롬프트용 목록으로 만듭니다. 계약 위반처럼 줄이 없는 항목도 받습니다.
+// brief 는 위반한 줄을 인용하지 않는 짧은 목록으로, 프롬프트 한도에 걸릴 때 씁니다.
 export function describeFindings(findings) {
   const rules = [...new Set(findings.map(f => f.rule))];
   const list = findings.map(f => `- [${f.rule}]${f.line ? ` ${f.line}행: ${f.text}` : ''}\n  ${f.detail}`).join('\n');
-  return { summary: rules.join(', '), list };
+  const brief = [...new Map(findings.map(f => [f.rule, f.detail]))].map(([rule, detail]) => `- [${rule}] ${detail}`).join('\n');
+  return { summary: rules.join(', '), list, brief };
 }

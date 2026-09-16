@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { makeFixture, manuscript, runSync, probeFile } from './helper.mjs';
 import { snapshot, changedFiles, prepareCommit, applyCommit, recover, writeBytes, acquireLock } from '../src/transaction.mjs';
+import { ommCli } from '../src/omm-cli.mjs';
 
 async function server(t, handler) {
   const service = http.createServer(async (req, res) => {
@@ -79,13 +80,37 @@ test('scan rejection restores the perspective, feeds the validation error back a
 
 test('scan rejection stops after the configured attempts without writing', async t => {
   const f = fixture(t); const before = snapshot(f.root); let scans = 0;
+  const answers = [
+    { updates: [{ ...scan.updates[0], element: '../app' }] },
+    { updates: [null] },
+    // 파일 이름(diagram)과 field(description)가 다른 필드를 가리키면 어느 쪽인지 알 수 없으므로 반려합니다.
+    { updates: [{ ...scan.updates[0], element: 'sync-probe/diagram.mmd' }] },
+    { updates: [{ ...scan.updates[0], field: 'diagram', text: 'broken diagram [' }] },
+  ];
   const url = await server(t, (data, res) => {
     if (!data.format.properties.updates) return reply(res, { markdown: manuscript('12000') });
-    scans++; reply(res, scans === 1 ? { updates: [{ ...scan.updates[0], element: '../app' }] } : { updates: [{ ...scan.updates[0], field: 'diagram', text: 'broken diagram [' }] });
+    reply(res, answers[scans++]);
   });
-  const r = await runSync(f.root, { DOCGEN_OLLAMA_URL: url, DOCFLOW_SCAN_ATTEMPTS: '2' });
-  assert.equal(r.code, 1, r.out); assert.equal(scans, 2);
-  assert.match(r.out, /구조 반려 1\/2: 경로·필드·내용이 유효하지 않습니다/); assert.match(r.out, /구조 스캔이 2회 시도 후에도 검증을 통과하지 못했습니다/);
+  const r = await runSync(f.root, { DOCGEN_OLLAMA_URL: url, DOCFLOW_SCAN_ATTEMPTS: '4' });
+  assert.equal(r.code, 1, r.out); assert.equal(scans, 4);
+  assert.match(r.out, /구조 반려 1\/4: 경로·필드·내용이 유효하지 않습니다/); assert.match(r.out, /구조 반려 2\/4: updates 항목이 객체가 아닙니다/);
+  assert.match(r.out, /구조 반려 3\/4: element 의 파일 이름\(diagram\)과 field\(description\)/);
+  assert.match(r.out, /구조 스캔이 4회 시도 후에도 검증을 통과하지 못했습니다: error \[/);
+  assert.deepEqual(changedFiles(before, snapshot(f.root)), [], r.out);
+});
+
+test('an OMM CLI failure during validate is not retried as a model rejection', async t => {
+  const f = fixture(t); let scans = 0;
+  // 검증 단계에서만 시간 초과를 흉내 냅니다. write 는 정상 CLI, validate 는 끝나지 않는 스크립트입니다.
+  f.put('tools/slow-omm.mjs', `import { spawnSync } from 'node:child_process';
+if (process.argv[2] === 'validate') { setInterval(() => {}, 1000); }
+else { const r = spawnSync(process.execPath, [process.env.REAL_OMM_CLI, ...process.argv.slice(2)], { stdio: 'inherit' }); process.exit(r.status ?? 1); }
+`);
+  const before = snapshot(f.root);
+  const url = await server(t, (data, res) => { if (data.format.properties.updates) { scans++; return reply(res, scan); } reply(res, { markdown: manuscript('12000') }); });
+  const r = await runSync(f.root, { DOCGEN_OLLAMA_URL: url, REAL_OMM_CLI: ommCli(), DOCGEN_OMM_CLI: path.join(f.root, 'tools/slow-omm.mjs'), DOCGEN_OMM_TIMEOUT_MS: '500' });
+  assert.equal(r.code, 1, r.out); assert.equal(scans, 1, r.out);
+  assert.doesNotMatch(r.out, /구조 반려/); assert.match(r.out, /omm validate 실패/);
   assert.deepEqual(changedFiles(before, snapshot(f.root)), [], r.out);
 });
 
@@ -110,6 +135,38 @@ test('writer rejection feeds the violated rules back and accepts the corrected m
   assert.match(r.out, /원고 정리: 조사 띄어쓰기 2곳/);
   assert.match(r.out, /원고 반려 1\/3: 종결어미, 대화체·작업 보고/);
   assert.equal(fs.readFileSync(path.join(f.root, 'docs/guide/_content/probe/overview-0.md'), 'utf8'), manuscript('12000'));
+});
+
+test('malformed front matter YAML is a rejection, not a crash', async t => {
+  const f = fixture(t); let writes = 0;
+  const url = await server(t, (data, res) => {
+    if (data.format.properties.updates) return reply(res, scan);
+    writes++;
+    if (writes === 1) return reply(res, { markdown: manuscript('12000').replace('based_on: [sync-probe]', 'based_on: [sync-probe') });
+    if (writes === 2) return reply(res, { markdown: '---\nbased_on: [sync-probe]\nconfidence: code\n본문만 있고 닫는 줄이 없습니다.\n' });
+    reply(res, { markdown: manuscript('12000') });
+  });
+  const r = await runSync(f.root, { DOCGEN_OLLAMA_URL: url }); assert.equal(r.code, 0, r.out);
+  assert.equal(writes, 3);
+  assert.match(r.out, /원고 반려 1\/3: front matter/); assert.match(r.out, /원고 반려 2\/3: front matter/);
+  assert.equal(fs.readFileSync(path.join(f.root, 'docs/guide/_content/probe/overview-0.md'), 'utf8'), manuscript('12000'));
+});
+
+test('rejection text is shortened when the full list would exceed the prompt limit', async t => {
+  const f = fixture(t); const prompts = [];
+  // 위반 줄 10개를 인용하면 목록이 한도를 넘고, 규칙별 한 줄 요약은 들어갑니다. 한도는 기준 프롬프트(약 14,400자)에 맞춰 잡습니다.
+  const noisy = manuscript('12000').replace('Probe.OBSERVE_MS는 관측 시간을 12000ms로 지정합니다.',
+    Array.from({ length: 10 }, (_, i) => `Probe.OBSERVE_MS는 ${i}번째 문장에서 관측 시간을 12000ms로 지정하며 이 문장은 일부러 길게 써서 반려 목록을 키운다.`).join('\n'));
+  const url = await server(t, (data, res) => {
+    if (data.format.properties.updates) return reply(res, scan);
+    prompts.push(data.messages.at(-1).content);
+    reply(res, { markdown: prompts.length === 1 ? noisy : manuscript('12000') });
+  });
+  const r = await runSync(f.root, { DOCGEN_OLLAMA_URL: url, DOCGEN_MAX_PROMPT_CHARS: '16000' }); assert.equal(r.code, 0, r.out);
+  assert.equal(prompts.length, 2);
+  assert.match(prompts[1], /## 이전 응답 반려 사유[^]*\[종결어미\] 모든 문장은/);
+  assert.doesNotMatch(prompts[1], /행: /);
+  assert.ok(prompts[1].length <= 16000 - 1000, `prompt ${prompts[1].length}`);
 });
 
 test('particle spacing alone is normalized and the manuscript is accepted on the first attempt', async t => {

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { lintManuscript, describeFindings, attachParticles } from '../src/manuscript-lint.mjs';
+import { lintManuscript, describeFindings, attachParticles, unwrapManuscript } from '../src/manuscript-lint.mjs';
 
 const rules = body => [...new Set(lintManuscript(body).map(f => f.rule))];
 
@@ -76,10 +76,35 @@ test('attachParticles removes only the gap before a particle and skips code bloc
 });
 
 test('describeFindings lists contract items without a line and prose items with one', () => {
-  const { summary, list } = describeFindings([
+  const { summary, list, brief } = describeFindings([
     { rule: 'front matter', detail: '첫 줄은 --- 입니다.' },
     { rule: '종결어미', detail: '합니다체로 씁니다.', line: 3, text: '반환한다.' },
+    { rule: '종결어미', detail: '합니다체로 씁니다.', line: 5, text: '고정된다.' },
   ]);
   assert.equal(summary, 'front matter, 종결어미');
-  assert.match(list, /^- \[front matter\]\n  첫 줄은 --- 입니다\.\n- \[종결어미\] 3행: 반환한다\.\n  합니다체로 씁니다\.$/);
+  assert.match(list, /^- \[front matter\]\n  첫 줄은 --- 입니다\.\n- \[종결어미\] 3행: 반환한다\.\n  합니다체로 씁니다\.\n- \[종결어미\] 5행: 고정된다\.\n  합니다체로 씁니다\.$/);
+  // 짧은 목록은 규칙마다 한 줄이며 위반한 줄을 인용하지 않습니다.
+  assert.equal(brief, '- [front matter] 첫 줄은 --- 입니다.\n- [종결어미] 합니다체로 씁니다.');
+});
+
+test('unwrapManuscript strips only an outer fence, whatever its info string case, and keeps inner code blocks', () => {
+  const inner = '---\nbased_on: [x]\n---\n본문입니다.\n\n```cpp\nreturn a;\n```\n\n끝 문장입니다.';
+  assert.equal(unwrapManuscript('```Markdown\n' + inner + '\n```'), inner + '\n');
+  assert.equal(unwrapManuscript('\r\n```md \r\n' + inner.replace(/\n/g, '\r\n') + '\r\n```\r\n'), inner + '\n');
+  assert.equal(unwrapManuscript('  ' + inner + '\n\n'), inner + '\n');
+  assert.equal(unwrapManuscript(undefined), '');
+  // 닫히지 않은 바깥 펜스는 벗기지 않습니다. front matter 검사에서 반려됩니다.
+  assert.equal(unwrapManuscript('```\n' + inner), '```\n' + inner + '\n');
+});
+
+test('review follow-ups: inline-code escapes, bold identifiers, closing brackets and ordinary prose', () => {
+  // 백틱 안의 \n 은 JSON 잔여물이 아닙니다.
+  assert.deepEqual(lintManuscript('로그는 `"\\n"`으로 줄을 나눕니다.\n'), []);
+  // 굵은 식별자 뒤의 조사도 붙입니다.
+  assert.deepEqual(attachParticles('**kBufferLimit** 은 4 를 넘지 않습니다.\n'), { text: '**kBufferLimit**은 4를 넘지 않습니다.\n', count: 2 });
+  // 닫는 괄호나 따옴표 안에서 끝나는 문장도 종결어미를 봅니다.
+  assert.deepEqual(rules('(inFlight가 4 이상이면 false를 반환한다.)\n'), ['종결어미']);
+  assert.deepEqual(rules('"4 이상이면 false를 반환합니다."\n'), []);
+  // 원고 안에서 앞 문장을 가리키는 말은 대화체가 아닙니다.
+  assert.deepEqual(rules('위 내용은 코드로 확인한 동작입니다.\n'), []);
 });
