@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { parseYaml } from "./yaml-lite.mjs";
+import { normalizeText } from "./text.mjs";
 import { PROJECT_ROOT, STATE_DIR, OMM_DIR, BINDINGS_FILE, SOURCE_ROOT, sourcePath, within } from './config.mjs';
 export { STATE_DIR, OMM_DIR, SOURCE_ROOT, sourcePath } from './config.mjs';
 
@@ -164,5 +165,5 @@ export const fail = (message) => {
   process.exit(1);
 };
 
-// Evidence and manuscripts are text; checkout line endings are not changes.
-export const normalizeText = (text) => text.replace(/\r\n/g, "\n");
+// 설정 없이 쓰는 모듈도 같은 정규화를 쓰도록 text.mjs 에 두고 여기서 다시 내보냅니다.
+export { normalizeText };
