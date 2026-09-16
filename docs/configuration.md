@@ -28,6 +28,14 @@ Hermes에는 명시적으로 `file` 도구 집합을 선택한 뒤 일회성 프
 
 Hermes 0.21.1의 커밋 `564aef2946c436500a5e80ee117b66b789b3f99a`에서 실제 CLI를 로컬 모의 API에 연결하여, 위 프로필이 보낸 요청에 도구 목록이 없고 `reasoning_effort`가 `none`이며 세션 제목 요청이 없음을 확인했습니다. 다른 설치본은 `DOCFLOW_REAL_HERMES_CLI`에 실행 파일의 절대 경로를 지정하고 `node --test test/hermes-real.test.mjs`로 확인할 수 있습니다. 이 테스트는 실제 Hermes를 실행하지만 모델 응답은 모의 API가 반환하므로 실제 Qwen 접속이나 생성 품질 검증은 아닙니다.
 
+## 모델 응답의 반려와 재요청
+
+로컬 소형 모델은 집필 규칙과 출력 계약을 확률적으로만 따르므로, `sync`는 모델 응답을 받은 뒤 결정적으로 검사하고 위반이 있으면 반려 사유를 프롬프트 끝에 붙여 같은 근거로 다시 요청합니다. 검사는 사본에서만 이루어지며 횟수를 다 쓰면 원본을 바꾸지 않고 실패합니다. 반려는 모델 호출 실패가 아니므로 `DOCFLOW_AGENT_ATTEMPTS`와 별개로 셉니다.
+
+구조 스캔은 응답의 요소·필드 형태를 검사하고 사본에 적용한 뒤 `omm validate`를 실행합니다. 검증에 실패하면 그 perspective의 파일을 스냅샷으로 되돌리고 검증 출력을 반려 사유로 넘깁니다. 모델이 요소를 `.omm/request-flow/diagram.mmd`처럼 파일 경로로 적으면 요소 디렉터리로 되돌려 받아들이며, 어느 필드를 쓰는지는 `field` 값만 봅니다.
+
+원고는 [src/manuscript-lint.mjs](../src/manuscript-lint.mjs)의 규칙으로 검사합니다. front matter, `based_on`, `confidence`, 인용한 코드 근거, 바인딩의 `must_link` 심볼이 본문에 그대로 있는지 같은 계약을 먼저 보고, 계약이 맞으면 본문의 JSON 잔여물, `#`·`##` 제목, 대화체 안내문과 작업 보고, 원고나 근거를 가리키는 말, 절대 경로와 줄 번호 링크, 굵은 글씨 제목, 비합니다체 종결어미를 검사합니다. 식별자 뒤에 한 칸 띄고 붙은 조사는 가장 흔한 위반이고 공백만 지우면 되므로 반려하지 않고 정리한 뒤 횟수를 로그에 남깁니다. 검사기는 문체와 형식만 보며 사실 관계와 근거 수준은 판단하지 않습니다. 그 검토는 `verify --accept`에서 사람이 합니다.
+
 ## 커밋과 CSWPR 이슈
 
 ```json
@@ -92,6 +100,8 @@ Confluence는 지정한 서버와 같은 origin의 링크만 수집합니다. `p
 | `DOCGEN_OMM_CLI` | 고정한 OMM CLI 모듈의 위치입니다. |
 | `DOCGEN_LLM_TIMEOUT_MS` | 모델 호출 1회의 제한 시간이며 기본 300초입니다. Hermes의 재시도마다 따로 적용됩니다. |
 | `DOCFLOW_AGENT_ATTEMPTS` | Hermes 실행 최대 횟수이며 기본 3회입니다. JSON 객체가 없거나 종료 코드가 0이 아닌 경우에만 다시 실행합니다. |
+| `DOCFLOW_SCAN_ATTEMPTS` | 구조 스캔 응답이 형태 검사나 `omm validate`에 실패했을 때 반려 사유를 붙여 다시 요청하는 최대 횟수이며 기본 3회입니다. 모델 호출 자체의 재시도(`DOCFLOW_AGENT_ATTEMPTS`)와 곱해집니다. |
+| `DOCFLOW_WRITER_ATTEMPTS` | 원고 응답이 계약이나 집필 규칙 검사에 실패했을 때 반려 사유를 붙여 다시 요청하는 최대 횟수이며 기본 3회입니다. 모델 호출 자체의 재시도와 곱해집니다. |
 | `DOCGEN_MAX_PROMPT_CHARS` | Hermes와 Ollama의 프롬프트 문자 수 제한이며 기본 60,000자입니다. Hermes는 추가한 JSON 출력 계약까지 검사합니다. 모델의 토큰 한도와는 별개입니다. |
 | `DOCGEN_QWEN_CONTEXT` | 직접 Ollama 호출의 컨텍스트이며 기본 32,768토큰입니다. |
 

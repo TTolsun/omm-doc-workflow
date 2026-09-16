@@ -52,7 +52,7 @@ node bin/docflow.mjs generate --project examples/camera-hal --source fixtures/ca
 
 반영은 복구 저널을 남기며, 중단되면 `sync --recover`로 되돌립니다. 후속 편집이 있는 파일은 복구하지 않습니다. `.sync-lock`으로 동시 실행을 막습니다.
 
-워커 파이프라인은 `collect` → `extract` → `verify` → Qwen 구조 스캔(OMM CLI `write`/`validate`) → Qwen 원고 집필(`brief.mjs` 프롬프트) → `verify` → `inspect` → `generate` → `design` 순서입니다. 각 단계는 `src/` 스크립트를 자식 프로세스로 실행합니다.
+워커 파이프라인은 `collect` → `extract` → `verify` → Qwen 구조 스캔(OMM CLI `write`/`validate`) → Qwen 원고 집필(`brief.mjs` 프롬프트) → `verify` → `inspect` → `generate` → `design` 순서입니다. 각 단계는 `src/` 스크립트를 자식 프로세스로 실행합니다. 구조 스캔과 원고 집필은 모델 응답을 결정적으로 검사하고(원고는 [src/manuscript-lint.mjs](src/manuscript-lint.mjs)), 위반이 있으면 반려 사유를 붙여 `DOCFLOW_SCAN_ATTEMPTS`·`DOCFLOW_WRITER_ATTEMPTS`(기본 3회)까지 다시 요청합니다. 검사기는 형식과 문체만 보며 사실 관계는 판단하지 않습니다.
 
 ### 검증 키와 최신성 상태
 
