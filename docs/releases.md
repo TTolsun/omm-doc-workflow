@@ -1,6 +1,24 @@
 # 공용 엔진 변경·배포 기록
 
-**0.3.3은 로컬 검증을 마친 수정본입니다. 소비 프로젝트 설치와 원격 배포는 수행하지 않았습니다.** 프로젝트에는 별도로 검증한 공용 엔진 버전을 설치해 호출해야 합니다.
+**0.4.0은 로컬 검증을 마친 기능 추가본입니다. 소비 프로젝트 설치와 원격 배포는 수행하지 않았습니다.** 프로젝트에는 별도로 검증한 공용 엔진 버전을 설치해 호출해야 합니다.
+
+## 0.4.0 · 2026-09-17
+
+이슈 #13(OMM 기반 UML/다이어그램 생성 workflow)을 반영했습니다. 바인딩의 `omm` 원본마다 `diagram_type`을 지정하면 구조 스캔 프롬프트, 응답 검사, 페이지 생성이 그 종류를 따릅니다. 검토 승인과 checkpoint는 변경하지 않으며, `diagram_type`을 생략한 기존 프로젝트의 해시와 동작은 그대로입니다.
+
+| 항목 | 변경 내용 |
+| --- | --- |
+| `diagram_type` 설정 | `flow`(기본값), `component`, `class`, `sequence`, `state`를 지원합니다. [src/lib.mjs](../src/lib.mjs)의 `readBindings`가 값을 검증하고, [src/model.mjs](../src/model.mjs)는 기본값이 아닌 종류를 `omm:<source>`의 `modelHash`에 넣어 종류를 바꾸면 `원본이 갱신됨`으로 재스캔·재검토 대상이 되게 합니다. |
+| 종류별 검사 | OMM 0.2.0의 `omm validate`는 `graph`/`flowchart` 선언을 요구하므로 `flow`·`component`만 CLI에 맡기고, UML 계열은 새 [src/diagram.mjs](../src/diagram.mjs)가 같은 출력 형식으로 검사합니다. 공통 규칙은 첫 줄 선언(`diagram-type`), 괄호 짝, `@참조` 존재이고, 종류별로 메시지·클래스 선언·전이의 존재와 문법 밖의 줄을 오류로 잡습니다. 라벨 없는 상태 전이는 경고입니다. 검사는 형식만 보며 사실 관계는 판단하지 않습니다. |
+| 스캔 프롬프트 | [src/sync-worker.mjs](../src/sync-worker.mjs)가 종류별 작성 규칙 한 줄을 프롬프트와 반려 안내에 넣습니다. UML 계열에는 허용 문법과 짧은 문법 예를 함께 줍니다. 실제 4B 모델이 `for slot in slots_`, `++inFlight_` 같은 코드 문장과 `Session-0>Slot` 같은 잘못된 화살표를 그림에 넣는 것을 관찰하고 추가한 것입니다. |
+| 생성 | [src/generate.mjs](../src/generate.mjs)는 `field: diagram` 블록의 첫 줄이 설정한 종류와 다르면 페이지를 쓰지 않고 실패합니다. Mermaid 블록은 종류를 그대로 담습니다. |
+| 예제 | `fixtures/camera-hal`에 `BufferSlot`과 `CaptureSession`을 추가하고, `examples/camera-hal`에 `session-structure`(class), `request-lifecycle`(sequence), `buffer-ownership`(state) 관점과 페이지 블록을 추가했습니다. 기존 `request-flow`의 근거는 `RequestQueue.*`로 좁혔습니다. `docs/preview`를 다시 생성했으며 `preview.png`는 이전 화면 그대로입니다. |
+
+0.4.0 검증 결과는 다음과 같습니다.
+
+- Windows와 Node 24.18.0에서 `npm test` 69개 중 66개가 통과했고 3개는 실행 조건이 없어 건너뛰었습니다. 새 검사 5개는 종류별 수용·거부 규칙, 경고가 실패로 이어지지 않는 것, `@참조` 검사, sequence 관점에서 graph 응답을 반려하고 정정 응답을 반영하는 동기화, 종류 불일치 시 `generate` 실패와 잘못된 `diagram_type` 거부, 종류 변경 시 `원본이 갱신됨` 전환과 기본값의 해시 유지를 다룹니다. `npm run preview:build` 결과를 함께 커밋했으며 Mermaid 11이 네 종류를 모두 SVG로 렌더링하는 것을 미리보기 화면에서 확인했습니다.
+- 정식 설치한 Hermes 0.21.3과 로컬 Ollama의 `qwen3.5:4b`로 예제 프로젝트 사본에서 `sync --force`를 7회 실행했습니다. 문법 예를 넣기 전 4회는 모두 실패했는데, 2회는 기존 `flow` 스캔에서 Hermes가 JSON 없이 응답을 끝내는 0.3.3에서도 있던 문제이고, 2회는 sequence 그림이 3회 반려 뒤 실패했습니다. 문법 예를 넣은 뒤 3회는 2회 성공, 1회는 sequence 그림이 코드 문장을 계속 넣어 3회 반려 뒤 원본 변경 없이 실패했으며 회당 152~185초가 걸렸습니다. 성공한 실행의 class·state 그림은 코드의 클래스·멤버·상태 전이와 일치했고, sequence 그림은 예제 원본을 유지했습니다. 4B 모델은 sequence 종류에서 가장 자주 반려되므로 실제 프로젝트에서는 `DOCFLOW_SCAN_ATTEMPTS`를 늘리거나 더 큰 모델을 쓰는 것을 검토해야 합니다.
+- 실제 Qwen 27B 서버와 사내 Jira·Confluence 실접속은 확인하지 않았습니다.
 
 ## 0.3.3 · 2026-09-17
 

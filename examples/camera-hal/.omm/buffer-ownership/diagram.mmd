@@ -1,0 +1,8 @@
+stateDiagram-v2
+    [*] --> Free
+    Free --> Queued : reserve()
+    Queued --> InFlight : submit()
+    InFlight --> Free : release()
+    note right of Free
+        다른 상태에서 호출한 전이 함수는 상태를 바꾸지 않고 false를 반환합니다.
+    end note

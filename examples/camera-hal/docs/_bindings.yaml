@@ -6,9 +6,30 @@ site:
 sources:
   request-flow:
     kind: omm
+    diagram_type: flow
     evidence:
-      - "**/*.cpp"
-      - "**/*.h"
+      - "RequestQueue.h"
+      - "RequestQueue.cpp"
+  session-structure:
+    kind: omm
+    diagram_type: class
+    evidence:
+      - "CaptureSession.h"
+      - "BufferSlot.h"
+      - "RequestQueue.h"
+  request-lifecycle:
+    kind: omm
+    diagram_type: sequence
+    evidence:
+      - "CaptureSession.cpp"
+      - "RequestQueue.cpp"
+      - "BufferSlot.cpp"
+  buffer-ownership:
+    kind: omm
+    diagram_type: state
+    evidence:
+      - "BufferSlot.h"
+      - "BufferSlot.cpp"
 pages:
   architecture.md:
     title: 요청 수용 조건
@@ -32,3 +53,23 @@ pages:
           must_link: [canAccept, kBufferLimit]
           forbid:
             - 실제 기기의 Camera HAL 동작으로 설명하지 않습니다.
+      - id: class-diagram
+        kind: omm
+        source: session-structure
+        field: diagram
+        confidence: code
+      - id: sequence-diagram
+        kind: omm
+        source: request-lifecycle
+        field: diagram
+        confidence: code
+      - id: state-diagram
+        kind: omm
+        source: buffer-ownership
+        field: diagram
+        confidence: code
+      - id: state-description
+        kind: omm
+        source: buffer-ownership
+        field: description
+        confidence: code

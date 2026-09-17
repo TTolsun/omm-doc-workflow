@@ -4,6 +4,10 @@
   "sourceWebUrl": null,
   "projectEvidence": {
     "files": [
+      "BufferSlot.cpp",
+      "BufferSlot.h",
+      "CaptureSession.cpp",
+      "CaptureSession.h",
       "RequestQueue.cpp",
       "RequestQueue.h"
     ],
@@ -11,8 +15,34 @@
       {
         "id": "request-flow",
         "patterns": [
-          "**/*.cpp",
-          "**/*.h"
+          "RequestQueue.h",
+          "RequestQueue.cpp"
+        ],
+        "fileCount": 2
+      },
+      {
+        "id": "session-structure",
+        "patterns": [
+          "CaptureSession.h",
+          "BufferSlot.h",
+          "RequestQueue.h"
+        ],
+        "fileCount": 3
+      },
+      {
+        "id": "request-lifecycle",
+        "patterns": [
+          "CaptureSession.cpp",
+          "RequestQueue.cpp",
+          "BufferSlot.cpp"
+        ],
+        "fileCount": 3
+      },
+      {
+        "id": "buffer-ownership",
+        "patterns": [
+          "BufferSlot.h",
+          "BufferSlot.cpp"
         ],
         "fileCount": 2
       }
@@ -20,6 +50,27 @@
     "reviews": [
       {
         "key": "omm:request-flow",
+        "state": "unknown",
+        "reviewedAt": null,
+        "reviewedCommit": null,
+        "reviewer": null
+      },
+      {
+        "key": "omm:session-structure",
+        "state": "unknown",
+        "reviewedAt": null,
+        "reviewedCommit": null,
+        "reviewer": null
+      },
+      {
+        "key": "omm:request-lifecycle",
+        "state": "unknown",
+        "reviewedAt": null,
+        "reviewedCommit": null,
+        "reviewer": null
+      },
+      {
+        "key": "omm:buffer-ownership",
         "state": "unknown",
         "reviewedAt": null,
         "reviewedCommit": null,
@@ -34,7 +85,7 @@
       }
     ],
     "reviewedCount": 0,
-    "reviewCount": 2,
+    "reviewCount": 5,
     "status": "unreviewed",
     "reviewedAt": null,
     "reviewedCommits": [],
@@ -43,6 +94,10 @@
   "pages": {
     "index.html": {
       "files": [
+        "BufferSlot.cpp",
+        "BufferSlot.h",
+        "CaptureSession.cpp",
+        "CaptureSession.h",
         "RequestQueue.cpp",
         "RequestQueue.h"
       ],
@@ -50,8 +105,34 @@
         {
           "id": "request-flow",
           "patterns": [
-            "**/*.cpp",
-            "**/*.h"
+            "RequestQueue.h",
+            "RequestQueue.cpp"
+          ],
+          "fileCount": 2
+        },
+        {
+          "id": "session-structure",
+          "patterns": [
+            "CaptureSession.h",
+            "BufferSlot.h",
+            "RequestQueue.h"
+          ],
+          "fileCount": 3
+        },
+        {
+          "id": "request-lifecycle",
+          "patterns": [
+            "CaptureSession.cpp",
+            "RequestQueue.cpp",
+            "BufferSlot.cpp"
+          ],
+          "fileCount": 3
+        },
+        {
+          "id": "buffer-ownership",
+          "patterns": [
+            "BufferSlot.h",
+            "BufferSlot.cpp"
           ],
           "fileCount": 2
         }
@@ -59,6 +140,27 @@
       "reviews": [
         {
           "key": "omm:request-flow",
+          "state": "unknown",
+          "reviewedAt": null,
+          "reviewedCommit": null,
+          "reviewer": null
+        },
+        {
+          "key": "omm:session-structure",
+          "state": "unknown",
+          "reviewedAt": null,
+          "reviewedCommit": null,
+          "reviewer": null
+        },
+        {
+          "key": "omm:request-lifecycle",
+          "state": "unknown",
+          "reviewedAt": null,
+          "reviewedCommit": null,
+          "reviewer": null
+        },
+        {
+          "key": "omm:buffer-ownership",
           "state": "unknown",
           "reviewedAt": null,
           "reviewedCommit": null,
@@ -73,7 +175,7 @@
         }
       ],
       "reviewedCount": 0,
-      "reviewCount": 2,
+      "reviewCount": 5,
       "status": "unreviewed",
       "reviewedAt": null,
       "reviewedCommits": [],

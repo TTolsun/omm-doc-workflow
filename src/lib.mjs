@@ -5,6 +5,7 @@ import crypto from "node:crypto";
 import { parseYaml } from "./yaml-lite.mjs";
 import { normalizeText } from "./text.mjs";
 import { PROJECT_ROOT, STATE_DIR, OMM_DIR, BINDINGS_FILE, SOURCE_ROOT, sourcePath, within } from './config.mjs';
+import { diagramTypeOf } from './diagram.mjs';
 export { STATE_DIR, OMM_DIR, SOURCE_ROOT, sourcePath } from './config.mjs';
 
 // tools/docgen 기준으로 저장소 루트는 두 단계 위입니다.
@@ -23,6 +24,7 @@ export function readBindings() {
   for (const [name, source] of Object.entries(parsed.sources ?? {})) {
     if (!/^[a-z0-9-]+$/.test(name)) throw new Error(`Invalid source ID: ${name}`);
     for (const glob of source.evidence ?? []) within(SOURCE_ROOT, glob);
+    if (source.kind === "omm") diagramTypeOf(source);
   }
   for (const [page, def] of Object.entries(parsed.pages ?? {})) {
     within(root, page);
