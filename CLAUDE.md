@@ -52,9 +52,13 @@ node bin/docflow.mjs generate --project examples/camera-hal --source fixtures/ca
 
 반영은 복구 저널을 남기며, 중단되면 `sync --recover`로 되돌립니다. 후속 편집이 있는 파일은 복구하지 않습니다. `.sync-lock`으로 동시 실행을 막습니다.
 
-워커 파이프라인은 `collect` → `extract` → `verify` → Qwen 구조 스캔(OMM CLI `write`/`validate`) → Qwen 원고 집필(`brief.mjs` 프롬프트) → `verify` → `inspect` → `generate` → `design` 순서입니다. 각 단계는 `src/` 스크립트를 자식 프로세스로 실행합니다. 구조 스캔과 원고 집필은 모델 응답을 결정적으로 검사하고(원고는 [src/manuscript-lint.mjs](src/manuscript-lint.mjs)), 위반이 있으면 반려 사유를 붙여 `DOCFLOW_SCAN_ATTEMPTS`·`DOCFLOW_WRITER_ATTEMPTS`(기본 3회)까지 다시 요청합니다. 검사기는 형식과 문체만 보며 사실 관계는 판단하지 않습니다.
+워커 파이프라인은 `collect` → `extract` → `verify` → Qwen 구조 스캔(요소 단위, [src/scan-prompt.mjs](src/scan-prompt.mjs) 프롬프트, OMM CLI `write`/`validate`, `scan.json` 캐시) → Qwen 원고 집필(`brief.mjs` 프롬프트 + [src/write-evidence.mjs](src/write-evidence.mjs)의 질문별 답변·인용 파일 계약, 근거는 인용 파일과 `must_link` 파일로 한정) → `verify` → `inspect` → `generate` → `design` 순서입니다. 각 단계는 `src/` 스크립트를 자식 프로세스로 실행합니다. 구조 스캔과 원고 집필은 모델 응답을 결정적으로 검사하고(원고는 [src/manuscript-lint.mjs](src/manuscript-lint.mjs)), 위반이 있으면 반려 사유를 붙여 `DOCFLOW_SCAN_ATTEMPTS`·`DOCFLOW_WRITER_ATTEMPTS`(기본 3회)까지 다시 요청합니다. 검사기는 형식과 문체만 보며 사실 관계는 판단하지 않습니다.
 
 바인딩의 `sources.<관점>.diagram_type`(`flow` 기본값, `component`, `class`, `sequence`, `state`)이 관점의 그림 종류를 정합니다. [src/diagram.mjs](src/diagram.mjs)가 종류별 프롬프트 규칙과 검사기를 가지며, OMM 0.2.0의 `omm validate`는 graph 선언만 받으므로 UML 계열은 CLI 대신 이 검사기로 검증합니다. 기본값이 아닌 종류는 `omm:<source>`의 `modelHash`에 들어갑니다.
+
+### 프로젝트 검사 명령
+
+`check [--ci|--build]`([src/check.mjs](src/check.mjs))가 디자인 → 근거 표시 → 사실 추출 → 최신성 → 담당 요소 → 생성 → 사이트 순서로 실행하는 전체 검사이고, `coverage`([src/coverage.mjs](src/coverage.mjs))는 프로젝트 `coverageAdapter`의 대상에 담당 요소가 있는지, `site`([src/site.mjs](src/site.mjs))는 바인딩 `site.root`를 `_config.yml`의 `output`으로 빌드·검사합니다. 소비 프로젝트(hal-camera)는 이 저장소를 npm 의존성으로 고정하고 `tools/docgen/docflow.mjs`에서 `bin/docflow.mjs`를 호출합니다.
 
 ### 검증 키와 최신성 상태
 

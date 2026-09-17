@@ -1,6 +1,25 @@
 # 공용 엔진 변경·배포 기록
 
-**0.4.0은 로컬 검증을 마친 기능 추가본입니다. 소비 프로젝트 설치와 원격 배포는 수행하지 않았습니다.** 프로젝트에는 별도로 검증한 공용 엔진 버전을 설치해 호출해야 합니다.
+**0.5.0은 hal-camera가 자체 `tools/docgen` 사본에 쌓아 온 개선을 엔진으로 되가져와, 소비 프로젝트가 엔진만 설치해 쓰도록 만든 판입니다.** hal-camera 저장소는 이 버전을 npm 의존성으로 고정하고 설정·어댑터·상태 파일만 남깁니다.
+
+## 0.5.0 · 2026-09-17
+
+hal-camera의 `tools/docgen/*.mjs`에만 있던 기능을 0.4.0의 반려 재요청·문체 검사·diagram 종류 위에 합쳤습니다. 검토 승인과 checkpoint는 변경하지 않습니다. 집필 규칙 원문은 그대로이므로 `styleDir`로 같은 규칙을 쓰던 프로젝트의 해시는 바뀌지 않습니다.
+
+| 항목 | 변경 내용 |
+| --- | --- |
+| 요소 단위 구조 스캔 | 바인딩 `sources.<관점>.elements`가 요소별 근거를 정하고, [src/model.mjs](../src/model.mjs)의 `collectElements`가 부모 근거 상속·부분집합 검사·존재하지 않는 키 거부를 맡습니다. [src/scan-prompt.mjs](../src/scan-prompt.mjs)는 요소의 필드, 부모 설명(읽기 전용), 그 요소의 근거만 넣어 60,000자 안에서 프롬프트를 만들고, 상태 디렉터리의 `scan.json`이 요소별 근거 해시를 기록해 바뀌지 않은 요소를 건너뜁니다(`--force`는 무시). 반려 재요청, diagram 종류 규칙, `omm validate`는 요소 단위로 그대로 적용됩니다. 관점 전체를 한 프롬프트에 넣던 방식은 hal-camera의 `overall-architecture`(57개 요소)에서 한도를 넘었습니다. |
+| 구조화된 원고 집필 | [src/write-evidence.mjs](../src/write-evidence.mjs)가 원고 근거를 인용 파일과 `must_link` 파일로 한정하고(`based_on` 관점의 evidence 전체가 아닙니다), 모델에는 질문별 답변(`answer_N`, 최대 2,500자)과 인용 파일(허용 목록 enum)만 요구합니다. front matter는 프로그램이 조립하며 `decisions`·`verifications`는 기존 원고의 값을 유지합니다. 근거가 한도를 넘으면 문자 오프셋을 표시한 조각으로 나눠 요약한 뒤 요약으로 집필합니다. 조립한 원고는 0.4.0의 계약 검사(`must_link` 포함)와 `manuscript-lint`를 거치고, 조립 실패도 `응답 형식` 반려 사유가 됩니다. |
+| Ollama 스트리밍 | [src/qwen.mjs](../src/qwen.mjs)가 `node:http`로 NDJSON 스트림을 읽습니다. 전체 예산 `DOCGEN_LLM_TIMEOUT_MS`(기본 1,800초)와 청크 사이 무응답 한도 `DOCGEN_LLM_IDLE_MS`(기본 120초)를 함께 적용하며, fetch/undici의 300초 헤더 제한에 걸리지 않습니다. 출력 토큰 한도는 `DOCGEN_QWEN_NUM_PREDICT`입니다. |
+| `verify` | `--check`·`--accept` 전에 요소 바인딩을 검증하고, 원본이나 인용 파일이 없는 항목은 `--accept`로 지울 수 없습니다. `must_link` 파일은 관점 evidence 밖에 있어도 원고 최신성에 들어가고 `sync`의 코드 사본에도 포함됩니다. |
+| 새 명령 | `coverage [--check]`는 프로젝트 `coverageAdapter`가 낸 대상(화면·패키지 등)이 어떤 `elements.*.evidence`에도 없으면 누락으로 판정하고, 바인딩 `coverage.ignore`의 `path`·`reason`으로 제외합니다. `site build|check|serve`는 바인딩 `site.root`의 `_config.yml`과 `_layouts/default.html`로 정적 사이트를 만들며(`marked` 의존성 추가), 매니페스트에 있는 파일만 정리하고 상대 링크·조각·루트 고정 경로를 검사합니다. `check [--ci|--build]`는 디자인 → 근거 표시 → 사실 추출 → 최신성 → 담당 요소 → 생성 → 사이트 순서의 전체 검사이며 CI와 개발자 PC가 같은 진입점을 씁니다. |
+| 진입점 | [bin/docflow.mjs](../bin/docflow.mjs)가 `process.argv[1]`을 파일 경로로 넘겨 Windows에서도 각 명령의 `isMain` 판정이 맞습니다. |
+
+0.5.0 검증 결과는 다음과 같습니다.
+
+- Windows와 Node 24.18.0에서 `npm test` 128개 중 122개가 통과했고 6개는 실행 조건이 없어 건너뛰었습니다. hal-camera의 sync 검사 65개(스트리밍 재조립, 시간 제한, 요소 스캔 캐시, 형제 요소 격리, 근거 분할 요약과 길이 초과 재시도, 실패 시 원본 보존, 복구·잠금)와 0.4.0의 반려 검사 8개(요소 단위와 조립 계약으로 옮김), 사이트 빌더 검사 9개를 포함합니다. 반려 검사가 아닌 sync 검사는 호출 횟수를 세므로 `DOCFLOW_SCAN_ATTEMPTS`·`DOCFLOW_WRITER_ATTEMPTS`를 1로 고정합니다.
+- hal-camera 작업본(관점 3개, 요소 57개, 원고 5건)에서 `check --build`가 6단계를 모두 통과했고, 요소 57개의 스캔 입력이 모두 60,000자 이하였습니다. 실제 Qwen 실행은 이 버전으로 다시 하지 않았습니다.
+- Ollama 모의 서버를 `fetch`로 바꿔치기하던 검사는 스트리밍 전송이 `node:http`를 쓰므로 루프백 서버로 바꿨습니다. 이전에는 mock이 걸리지 않아 이 PC의 실제 Ollama에 요청이 갔습니다.
 
 ## 0.4.0 · 2026-09-17
 

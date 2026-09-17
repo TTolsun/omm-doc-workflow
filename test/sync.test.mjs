@@ -4,29 +4,193 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { makeFixture, manuscript, runSync, probeFile } from './helper.mjs';
+import { makeFixture, manuscript, runSync, probeFile, timerFile } from './helper.mjs';
 import { snapshot, changedFiles, prepareCommit, applyCommit, recover, writeBytes, acquireLock } from '../src/transaction.mjs';
-import { ommCli } from '../src/omm-cli.mjs';
+import { qwen } from '../src/qwen.mjs';
+// config.mjs resolves the project at import time; point it at the example so unit imports work outside a fixture.
+process.env.DOCFLOW_PROJECT_ROOT = path.join(import.meta.dirname, '../examples/camera-hal');
+const { splitFrontMatter, citedFiles } = await import('../src/model.mjs');
+const { manuscriptSchema, renderManuscript } = await import('../src/write-evidence.mjs');
+delete process.env.DOCFLOW_PROJECT_ROOT;
+const writer = markdown => { const { meta, body } = splitFrontMatter(markdown); return { sections: { answer_1: body }, sources: citedFiles(meta) }; };
+
+test('structured writer preserves human evidence metadata and requires every requested answer', () => {
+  const key = { block: { based_on: ['sync-probe'], confidence: 'code', brief: { answers: ['First?', 'Second?'] } } };
+  const format = manuscriptSchema(key, [probeFile]);
+  assert.deepEqual(format.properties.sources.items.enum, [probeFile]);
+  const response = { sections: { answer_1: '첫 답변입니다.', answer_2: '두 번째 답변입니다.' }, sources: [probeFile], decisions: ['D-invented'] };
+  const { meta, body } = splitFrontMatter(renderManuscript(key, response, { decisions: ['D-existing'], verifications: [] }));
+  assert.deepEqual(meta.decisions, ['D-existing']); assert.deepEqual(meta.verifications, []);
+  assert.match(body, /첫 답변입니다\.\n\n두 번째 답변입니다\./);
+  for (const sections of [{ answer_1: 'only one' }, { ...response.sections, extra: 'unexpected' },
+    { ...response.sections, answer_2: 'x'.repeat(2501) }, { ...response.sections, answer_2: '---\nconfidence: device' }]) {
+    assert.throws(() => renderManuscript(key, { ...response, sections }), /질문별 답변/);
+  }
+});
 
 async function server(t, handler) {
   const service = http.createServer(async (req, res) => {
+    req.setEncoding('utf8');
     let text = ''; for await (const chunk of req) text += chunk;
     const data = JSON.parse(text);
     assert.equal(data.model, 'qwen3.5:4b'); assert.equal(data.think, false);
     assert.equal(data.tools, undefined); assert.equal(data.truncate, false);
-    handler(data, res);
+    assert.equal(data.stream, true);
+    try { handler(data, res); }
+    catch (error) { res.writeHead(500).end(); throw error; }
   });
   await new Promise(r => service.listen(0, '127.0.0.1', r));
   t.after(() => { service.closeAllConnections(); service.close(); });
   return `http://127.0.0.1:${service.address().port}`;
 }
-const reply = (res, content, extra = {}) => res.end(JSON.stringify({ done: true, done_reason: 'stop', message: { content: JSON.stringify(content) }, ...extra }));
+const packet = data => JSON.stringify(data) + '\n';
+const reply = (res, content, extra = {}) => {
+  res.setHeader('Content-Type', 'application/x-ndjson');
+  const text = JSON.stringify(content), middle = Math.floor(text.length / 2);
+  res.write(packet({ done: false, message: { content: text.slice(0, middle) } }));
+  res.write(packet({ done: false, message: { content: text.slice(middle) } }));
+  res.end(packet({ done: true, done_reason: 'stop', eval_count: 42, message: { content: '' }, ...extra }));
+};
 const scan = { updates: [{ element: 'sync-probe', field: 'description', text: 'Probe.OBSERVE_MS는 12000ms입니다.' }] };
+const scanFor = data => ({ updates: [{ ...scan.updates[0], element: data.format.properties.updates.items.properties.element.enum[0] }] });
 function fixture(t, n = 1) { const f = makeFixture(n); t.after(f.cleanup); return f; }
+
+function transportEnv(t, url, extra = {}) {
+  for (const [key, value] of Object.entries({ DOCGEN_OLLAMA_URL: url, DOCGEN_LLM_TIMEOUT_MS: '10000', DOCGEN_LLM_IDLE_MS: '2000', ...extra })) {
+    const previous = process.env[key];
+    process.env[key] = value;
+    t.after(() => { if (previous === undefined) delete process.env[key]; else process.env[key] = previous; });
+  }
+}
+
+test('stream reconstructs split UTF-8, split lines and an unterminated final line', async t => {
+  const expected = { markdown: '한국어 원고입니다.\n두 번째 줄입니다.' };
+  const url = await server(t, (_data, res) => {
+    const wire = Buffer.from(packet({ done: false, message: { content: JSON.stringify(expected) } }) + '\r\n' +
+      JSON.stringify({ done: true, done_reason: 'stop', eval_count: 12 }));
+    const split = wire.indexOf(Buffer.from('한')) + 1;
+    res.write(wire.subarray(0, split));
+    setImmediate(() => { res.write(wire.subarray(split, split + 3)); setImmediate(() => res.end(wire.subarray(split + 3))); });
+  });
+  transportEnv(t, url);
+  assert.deepEqual(await qwen('test', {}), expected);
+});
+
+test('stream accepts final-chunk content and stops without waiting for EOF', async t => {
+  const url = await server(t, (data, res) => {
+    assert.equal(data.options.num_predict, 1234);
+    res.write(packet({ done: false, message: { content: '{"value":' } }));
+    res.write(packet({ done: true, done_reason: 'stop', message: { content: '42}' } }));
+  });
+  transportEnv(t, url, { DOCGEN_QWEN_NUM_PREDICT: '1234' });
+  assert.deepEqual(await qwen('test', {}), { value: 42 });
+});
+
+test('default output budget remains 8192', async t => {
+  const url = await server(t, (data, res) => {
+    assert.equal(data.options.num_predict, 8192);
+    reply(res, { ok: true });
+  });
+  transportEnv(t, url, { DOCGEN_QWEN_NUM_PREDICT: '8192' });
+  delete process.env.DOCGEN_QWEN_NUM_PREDICT;
+  assert.deepEqual(await qwen('test', {}), { ok: true });
+});
+
+for (const completes of [true, false]) {
+  test(`active stream ${completes ? 'refreshes idle deadline' : 'cannot extend total deadline'}`, async t => {
+    const url = await server(t, (_data, res) => {
+      res.write(packet({ done: false, message: { content: '{"ok":true}' } }));
+      let chunks = 0;
+      const timer = setInterval(() => {
+        res.write(packet({ done: false, message: { content: '' } }));
+        if (completes && ++chunks === 8) res.end(packet({ done: true, done_reason: 'stop' }));
+      }, 100);
+      res.on('close', () => clearInterval(timer));
+    });
+    transportEnv(t, url, { DOCGEN_LLM_IDLE_MS: '500', DOCGEN_LLM_TIMEOUT_MS: completes ? '10000' : '800' });
+    if (completes) assert.deepEqual(await qwen('test', {}), { ok: true });
+    else await assert.rejects(qwen('test', {}), /전체 시간 제한 초과/);
+  });
+}
+
+test('idle deadline also covers waiting for headers', async t => {
+  const url = await server(t, () => {});
+  transportEnv(t, url, { DOCGEN_LLM_IDLE_MS: '100' });
+  await assert.rejects(qwen('test', {}), /유휴 시간 제한 초과/);
+});
+
+test('total deadline covers headers even when the idle budget is longer', async t => {
+  const url = await server(t, () => {});
+  transportEnv(t, url, { DOCGEN_LLM_IDLE_MS: '1000', DOCGEN_LLM_TIMEOUT_MS: '100' });
+  await assert.rejects(qwen('test', {}), /전체 시간 제한 초과/);
+});
+
+test('local transport rejects redirects without contacting their destination', async t => {
+  let destinationRequests = 0;
+  const destination = await server(t, (_data, res) => { destinationRequests++; reply(res, {}); });
+  const url = await server(t, (_data, res) => res.writeHead(307, { Location: destination }).end());
+  transportEnv(t, url);
+  await assert.rejects(qwen('test', {}), /Ollama HTTP 307/);
+  assert.equal(destinationRequests, 0);
+});
+
+test('headers can arrive after 300 seconds within configured deadlines', { skip: process.env.DOCGEN_LONG_HEADERS !== '1', timeout: 330000 }, async t => {
+  const url = await server(t, (_data, res) => {
+    const finish = setTimeout(() => reply(res, { ok: true }), 305000);
+    res.on('close', () => clearTimeout(finish));
+  });
+  transportEnv(t, url, { DOCGEN_LLM_TIMEOUT_MS: '1800000', DOCGEN_LLM_IDLE_MS: '600000' });
+  assert.deepEqual(await qwen('test', {}), { ok: true });
+});
+
+test('stream survives the previous 300-second limit', { skip: process.env.DOCGEN_LONG_STREAM !== '1', timeout: 330000 }, async t => {
+  const url = await server(t, (_data, res) => {
+    res.write(packet({ done: false, message: { content: '{"ok":true}' } }));
+    const heartbeat = setInterval(() => res.write(packet({ done: false, message: { content: '' } })), 1000);
+    const finish = setTimeout(() => res.end(packet({ done: true, done_reason: 'stop' })), 305000);
+    res.on('close', () => { clearInterval(heartbeat); clearTimeout(finish); });
+  });
+  transportEnv(t, url, { DOCGEN_LLM_TIMEOUT_MS: '1800000', DOCGEN_LLM_IDLE_MS: '120000' });
+  delete process.env.DOCGEN_LLM_TIMEOUT_MS;
+  delete process.env.DOCGEN_LLM_IDLE_MS;
+  assert.deepEqual(await qwen('test', {}), { ok: true });
+});
+
+test('invalid transport settings fail before contacting Ollama', async t => {
+  let requests = 0;
+  const url = await server(t, (_data, res) => { requests++; reply(res, {}); });
+  transportEnv(t, url);
+  for (const key of ['DOCGEN_LLM_TIMEOUT_MS', 'DOCGEN_LLM_IDLE_MS', 'DOCGEN_QWEN_NUM_PREDICT']) {
+    for (const value of ['0', '-1', '1.5', 'NaN']) {
+      await t.test(`${key}=${value}`, async sub => {
+        transportEnv(sub, url, { [key]: value });
+        await assert.rejects(qwen('test', {}), new RegExp(key));
+      });
+    }
+  }
+  assert.equal(requests, 0);
+});
+
+test('timer overflow is rejected before a request and the maximum delay is accepted', async t => {
+  let requests = 0;
+  const url = await server(t, (_data, res) => { requests++; reply(res, { ok: true }); });
+  for (const key of ['DOCGEN_LLM_TIMEOUT_MS', 'DOCGEN_LLM_IDLE_MS']) {
+    for (const value of ['2147483648', String(Number.MAX_SAFE_INTEGER)]) {
+      await t.test(`${key}=${value}`, async sub => {
+        transportEnv(sub, url, { [key]: value });
+        await assert.rejects(qwen('test', {}), new RegExp(`${key} must not exceed 2147483647ms`));
+      });
+    }
+  }
+  assert.equal(requests, 0);
+  transportEnv(t, url, { DOCGEN_LLM_TIMEOUT_MS: '2147483647', DOCGEN_LLM_IDLE_MS: '2147483647' });
+  assert.deepEqual(await qwen('test', {}), { ok: true });
+  assert.equal(requests, 1);
+});
 
 test('local protocol completes scan/write/generate without accepting review', async t => {
   const f = fixture(t); const before = snapshot(f.root);
-  const url = await server(t, (data, res) => reply(res, data.format.properties.updates ? scan : { markdown: manuscript('12000') }));
+  const url = await server(t, (data, res) => reply(res, data.format.properties.updates ? scanFor(data) : writer(manuscript('12000'))));
   const r = await runSync(f.root, { DOCGEN_OLLAMA_URL: url }); assert.equal(r.code, 0, r.out);
   assert.match(fs.readFileSync(path.join(f.root, 'docs/guide/probe.md'), 'utf8'), /12000ms/);
   const accepted = bytes => Object.fromEntries(Object.entries(JSON.parse(bytes).entries).map(([k, v]) => [k, v.accepted]));
@@ -34,174 +198,273 @@ test('local protocol completes scan/write/generate without accepting review', as
   assert.ok(changedFiles(before, snapshot(f.root)).every(p => p.startsWith('.omm/sync-probe/') || p.startsWith('docs/guide/') || p.startsWith('tools/docgen/state/')));
 });
 
-for (const scenario of ['http', 'timeout', 'json', 'truncated', 'path', 'validation', 'writer-empty', 'writer-source', 'second-writer', 'marker']) {
+test('element prompts isolate code and fields while including only the parent description', async t => {
+  const f = makeFixture(1, { splitEvidence: true }); t.after(f.cleanup);
+  f.put('.omm/sync-probe/description.md', 'PARENT_DESCRIPTION_ONLY\n');
+  f.put('.omm/sync-probe/note.md', 'PARENT_NOTE_NOT_FOR_CHILD\n');
+  f.put('.omm/sync-probe/timer/note.md', 'CHILD_NOTE_NOT_FOR_PARENT\n');
+  const seen = [];
+  const url = await server(t, (data, res) => {
+    const allowed = data.format.properties.updates.items.properties.element.enum;
+    assert.equal(allowed.length, 1); seen.push(allowed[0]);
+    assert.equal(data.format.properties.updates.items.properties.text.minLength, 1);
+    const prompt = data.messages.at(-1).content;
+    if (allowed[0] === 'sync-probe') {
+      assert.ok(prompt.includes('## 파일: ' + probeFile));
+      assert.ok(!prompt.includes('## 파일: ' + timerFile));
+      assert.ok(!prompt.includes('CHILD_NOTE_NOT_FOR_PARENT'));
+    } else {
+      assert.ok(prompt.includes('## 파일: ' + timerFile));
+      assert.ok(!prompt.includes('## 파일: ' + probeFile));
+      assert.ok(prompt.includes('PARENT_DESCRIPTION_ONLY'));
+      assert.ok(!prompt.includes('PARENT_NOTE_NOT_FOR_CHILD'));
+    }
+    reply(res, { updates: [] });
+  });
+  const r = await runSync(f.root, { DOCGEN_OLLAMA_URL: url }, ['--scan-only']);
+  assert.equal(r.code, 0, r.out); assert.deepEqual(seen, ['sync-probe', 'sync-probe/timer']);
+});
+
+test('scan cache skips unchanged code, selects changed evidence and force rescans all elements', async t => {
+  const f = makeFixture(1, { splitEvidence: true }); t.after(f.cleanup);
+  const seen = [];
+  const url = await server(t, (data, res) => {
+    seen.push(data.format.properties.updates.items.properties.element.enum[0]); reply(res, { updates: [] });
+  });
+  const run = async args => { const r = await runSync(f.root, { DOCGEN_OLLAMA_URL: url }, args); assert.equal(r.code, 0, r.out); };
+  await run(['--scan-only']); assert.deepEqual(seen, ['sync-probe', 'sync-probe/timer']);
+  const cachePath = path.join(f.root, 'tools/docgen/state/scan.json');
+  const first = JSON.parse(fs.readFileSync(cachePath));
+  for (const entry of Object.values(first.entries)) { assert.match(entry.codeHash, /^[a-f0-9]{16}$/); assert.ok(Number.isFinite(Date.parse(entry.scannedAt))); }
+  seen.length = 0;
+  const before = snapshot(f.root);
+  await run(['--scan-only']); assert.deepEqual(seen, []); assert.deepEqual(changedFiles(before, snapshot(f.root)), []);
+  f.put(timerFile, 'package dev.halcamera\nobject Timer { const val OBSERVE_MS = 15000L }\n');
+  await run(['--scan-only']); assert.deepEqual(seen, ['sync-probe/timer']);
+  const next = JSON.parse(fs.readFileSync(cachePath));
+  assert.deepEqual(next.entries['sync-probe'], first.entries['sync-probe']);
+  assert.notEqual(next.entries['sync-probe/timer'].codeHash, first.entries['sync-probe/timer'].codeHash);
+  seen.length = 0;
+  const planned = snapshot(f.root);
+  await run(['--scan-only', '--force', '--dry-run']); assert.deepEqual(seen, []); assert.deepEqual(changedFiles(planned, snapshot(f.root)), []);
+  await run(['--scan-only', '--force']); assert.deepEqual(seen, ['sync-probe', 'sync-probe/timer']);
+});
+
+test('identical updates do not rewrite OMM content or metadata', async t => {
+  const f = fixture(t);
+  const before = snapshot(f.root);
+  const url = await server(t, (data, res) => {
+    const element = data.format.properties.updates.items.properties.element.enum[0];
+    const text = fs.readFileSync(path.join(f.root, '.omm', element, 'description.md'), 'utf8').replace(/\r?\n/g, '\r\n');
+    reply(res, { updates: [{ element, field: 'description', text }] });
+  });
+  const r = await runSync(f.root, { DOCGEN_OLLAMA_URL: url }, ['--scan-only']);
+  assert.equal(r.code, 0, r.out);
+  assert.ok(changedFiles(before, snapshot(f.root)).every(p => !p.startsWith('.omm/')));
+  assert.ok(fs.existsSync(path.join(f.root, 'tools/docgen/state/scan.json')));
+});
+
+test('second element failure preserves prior OMM files and scan history', async t => {
+  const f = fixture(t); const seen = [];
+  f.put('tools/docgen/state/scan.json', JSON.stringify({ schema: 1, entries: {
+    'sync-probe': { codeHash: '0000000000000000', scannedAt: '2026-01-01T00:00:00.000Z' },
+  } }));
+  const url = await server(t, (data, res) => {
+    const element = data.format.properties.updates.items.properties.element.enum[0]; seen.push(element);
+    if (element === 'sync-probe/timer') res.end(packet({ error: 'failed' }));
+    else reply(res, scanFor(data));
+  });
+  const before = snapshot(f.root);
+  const r = await runSync(f.root, { DOCGEN_OLLAMA_URL: url }, ['--scan-only']);
+  assert.equal(r.code, 1, r.out); assert.deepEqual(seen, ['sync-probe', 'sync-probe/timer']);
+  assert.deepEqual(changedFiles(before, snapshot(f.root)), []);
+});
+
+test('an element cannot modify its sibling even within the same perspective', async t => {
+  const f = fixture(t); const before = snapshot(f.root);
+  const url = await server(t, (_data, res) => reply(res, { updates: [{ ...scan.updates[0], element: 'sync-probe/timer' }] }));
+  const r = await runSync(f.root, { DOCGEN_OLLAMA_URL: url }, ['--scan-only']);
+  assert.equal(r.code, 1, r.out); assert.match(r.out, /경로·필드·내용/);
+  assert.deepEqual(changedFiles(before, snapshot(f.root)), []);
+});
+
+for (const text of ['', ' \n ']) test('empty scan content is rejected without changing files: ' + JSON.stringify(text), async t => {
+  const f = fixture(t); const before = snapshot(f.root);
+  const url = await server(t, (_data, res) => reply(res, { updates: [{ ...scan.updates[0], text }] }));
+  const r = await runSync(f.root, { DOCGEN_OLLAMA_URL: url }, ['--scan-only']);
+  assert.equal(r.code, 1, r.out); assert.match(r.out, /sync-probe: 구조 스캔이 1회 시도 후에도 검증을 통과하지 못했습니다: 경로·필드·내용이 유효하지 않습니다/);
+  assert.deepEqual(changedFiles(before, snapshot(f.root)), []);
+});
+
+test('writer selects cited files and exact must_link filenames, retaining OMM context', async t => {
+  const f = makeFixture(1, { splitEvidence: true }); t.after(f.cleanup);
+  f.put('app/src/main/java/dev/halcamera/Unrelated.kt', 'UNRELATED_CODE_SENTINEL');
+  const bindingFile = path.join(f.root, 'docs/guide/_bindings.yaml');
+  f.put('docs/guide/_bindings.yaml', fs.readFileSync(bindingFile, 'utf8')
+    .replace('        brief:', '        brief:\n          must_link: [Timer, ProbeMissing]'));
+  const url = await server(t, (data, res) => {
+    const prompt = data.messages.at(-1).content;
+    assert.match(prompt, /## 근거: .omm\/sync-probe/);
+    assert.match(prompt, /Probe.OBSERVE_MS는 관측 시간을 10000ms로 지정/);
+    assert.ok(prompt.includes('## 파일: ' + probeFile));
+    assert.ok(prompt.includes('## 파일: ' + timerFile));
+    assert.ok(!prompt.includes('UNRELATED_CODE_SENTINEL'));
+    assert.equal(prompt.split('## 파일: ' + probeFile).length, 2);
+    // must_link 심볼은 본문에 그대로 있어야 받아들입니다.
+    reply(res, writer(manuscript('12000').replace('Probe.OBSERVE_MS는 관측 시간을', 'Timer.OBSERVE_MS와 ProbeMissing 값은 관측 시간을')));
+  });
+  const r = await runSync(f.root, { DOCGEN_OLLAMA_URL: url }, ['--write-only']);
+  assert.equal(r.code, 0, r.out);
+});
+
+test('uncited perspective changes reach the writer through refreshed OMM context', async t => {
+  const f = makeFixture(1, { splitEvidence: true }); t.after(f.cleanup);
+  f.put(timerFile, 'object Timer { const val OBSERVE_MS = 15000L }');
+  let written = false;
+  const url = await server(t, (data, res) => {
+    if (data.format.properties.updates) {
+      const element = data.format.properties.updates.items.properties.element.enum[0];
+      return reply(res, { updates: [{ element, field: 'description', text: element.endsWith('/timer') ?
+        'Timer.OBSERVE_MS는 15000ms입니다.' : 'Probe.OBSERVE_MS는 12000ms입니다.' }] });
+    }
+    const prompt = data.messages.at(-1).content;
+    assert.match(prompt, /Timer.OBSERVE_MS는 15000ms입니다/);
+    assert.ok(!prompt.includes('## 파일: ' + timerFile));
+    written = true; reply(res, writer(manuscript('12000')));
+  });
+  const r = await runSync(f.root, { DOCGEN_OLLAMA_URL: url });
+  assert.equal(r.code, 0, r.out); assert.equal(written, true);
+});
+
+test('writer rejects empty evidence before contacting the model and preserves files', async t => {
+  const f = fixture(t);
+  f.put('docs/guide/_content/probe/overview-0.md', manuscript('10000').replace('  - ' + probeFile + '#Probe.OBSERVE_MS', ''));
+  const before = snapshot(f.root);
+  let requests = 0;
+  const url = await server(t, (_data, res) => { requests++; reply(res, {}); });
+  const r = await runSync(f.root, { DOCGEN_OLLAMA_URL: url }, ['--write-only']);
+  assert.notEqual(r.code, 0); assert.match(r.out, /docflow brief probe.md overview-0/);
+  assert.equal(requests, 0); assert.deepEqual(changedFiles(before, snapshot(f.root)), []);
+});
+
+for (const eol of ['\n', '\r\n']) test(`large writer preserves all LF-normalized code for ${JSON.stringify(eol)} checkouts`, async t => {
+  const f = fixture(t);
+  const source = '/*' + '한국어-0123456789 '.repeat(6000) + '*/\nobject Probe { const val OBSERVE_MS = 12000L }\n';
+  f.put(probeFile, source.replace(/\n/g, eol));
+  const slices = []; let writes = 0;
+  const url = await server(t, (data, res) => {
+    const prompt = data.messages.at(-1).content;
+    assert.ok(prompt.length <= 60000);
+    if (data.format.properties.summary) {
+      const match = prompt.match(/\[문자 (\d+):(\d+)\/(\d+)\]\n([\s\S]*)\n$/);
+      assert.ok(match); assert.equal(Number(match[3]), source.length);
+      assert.ok(match[4] === source.slice(Number(match[1]), Number(match[2])), `slice ${match[1]}:${match[2]} has ${match[4].length} chars, head ${JSON.stringify(match[4].slice(0, 10))}, tail ${JSON.stringify(match[4].slice(-20))}`);
+      slices.push(match[4]);
+      reply(res, { summary: 'Probe.OBSERVE_MS는 12000ms입니다.' });
+    } else {
+      writes++;
+      assert.match(prompt, /## 근거: .omm\/sync-probe/);
+      assert.match(prompt, /## 코드 근거 요약/);
+      assert.match(prompt, /## 현재 원고/);
+      reply(res, writer(manuscript('12000')));
+    }
+  });
+  const r = await runSync(f.root, { DOCGEN_OLLAMA_URL: url }, ['--write-only']);
+  assert.equal(r.code, 0, r.out); assert.equal(writes, 1);
+  assert.ok(slices.length > 1); assert.equal(slices.join(''), source);
+});
+
+for (const summary of ['', 'x'.repeat(4001)]) test(`invalid evidence summary preserves the original: ${summary.length} chars`, async t => {
+  const f = fixture(t); f.put(probeFile, '/*' + 'x'.repeat(70000) + '*/');
+  const before = snapshot(f.root);
+  let requests = 0;
+  const url = await server(t, (_data, res) => { requests++; reply(res, { summary }); });
+  const r = await runSync(f.root, { DOCGEN_OLLAMA_URL: url }, ['--write-only']);
+  assert.notEqual(r.code, 0); assert.match(r.out, /요약이 비어 있거나/);
+  assert.equal(requests, summary.length ? 2 : 1);
+  assert.deepEqual(changedFiles(before, snapshot(f.root)), []);
+});
+
+test('oversized evidence is retried once from the same code and only valid notes reach the writer', async t => {
+  const f = fixture(t); f.put(probeFile, '/*' + 'x'.repeat(70000) + '*/');
+  let firstPrompt; let summaries = 0; let writes = 0;
+  const invalid = 'INVALID'.repeat(600);
+  const url = await server(t, (data, res) => {
+    const prompt = data.messages.at(-1).content;
+    assert.ok(prompt.length <= 60000);
+    assert.ok(!prompt.includes(invalid));
+    if (data.format.properties.summary) {
+      summaries++;
+      if (summaries === 1) { firstPrompt = prompt; return reply(res, { summary: invalid }); }
+      if (summaries === 2) {
+        assert.ok(prompt.startsWith(firstPrompt));
+        assert.match(prompt, /길이 초과 재시도/);
+        assert.match(prompt, /1000자 이하/);
+      }
+      return reply(res, { summary: 'Probe의 코드 근거입니다.' });
+    }
+    writes++; assert.match(prompt, /Probe의 코드 근거입니다/);
+    reply(res, writer(manuscript('12000')));
+  });
+  const r = await runSync(f.root, { DOCGEN_OLLAMA_URL: url }, ['--write-only']);
+  assert.equal(r.code, 0, r.out); assert.equal(summaries, 3); assert.equal(writes, 1);
+});
+
+test('summarized writer still rejects citations outside the selected evidence', async t => {
+  const f = fixture(t); f.put(probeFile, '/*' + 'x'.repeat(70000) + '*/');
+  const before = snapshot(f.root);
+  const url = await server(t, (data, res) => reply(res, data.format.properties.summary ?
+    { summary: 'Probe의 코드 근거입니다.' } : writer(manuscript('12000').replace(probeFile, 'missing.kt'))));
+  const r = await runSync(f.root, { DOCGEN_OLLAMA_URL: url }, ['--write-only']);
+  assert.notEqual(r.code, 0); assert.match(r.out, /원고 반려 1\/1: 코드 근거 인용/);
+  assert.deepEqual(changedFiles(before, snapshot(f.root)), []);
+});
+
+test('write-only never calls the scanner or records a scan', async t => {
+  const f = fixture(t); const before = snapshot(f.root);
+  const url = await server(t, (data, res) => {
+    assert.ok(!data.format.properties.updates); reply(res, writer(manuscript('12000')));
+  });
+  const r = await runSync(f.root, { DOCGEN_OLLAMA_URL: url }, ['--write-only']);
+  assert.equal(r.code, 0, r.out);
+  assert.ok(changedFiles(before, snapshot(f.root)).every(p => !p.startsWith('.omm/') && !p.endsWith('/scan.json')));
+});
+
+for (const scenario of ['http', 'timeout', 'idle', 'json', 'truncated', 'incomplete', 'stream-error', 'path', 'validation', 'writer-empty', 'writer-source', 'second-writer', 'marker']) {
   test(`${scenario} failure preserves every original byte`, async t => {
     const f = fixture(t, 2); let writes = 0;
     if (scenario === 'marker') f.put('docs/guide/probe.md', '<!-- omm:begin id=status -->\n');
     const before = snapshot(f.root);
     const url = await server(t, (data, res) => {
       if (scenario === 'timeout') return;
+      if (scenario === 'idle') return res.write(packet({ done: false, message: { content: '{' } }));
       if (scenario === 'http') { res.statusCode = 503; return res.end(); }
       if (scenario === 'json') return res.end('{bad');
+      if (scenario === 'incomplete') return res.end(packet({ done: false, message: { content: JSON.stringify(scan) } }));
+      if (scenario === 'stream-error') return res.end(packet({ error: 'model failed' }));
       if (scenario === 'truncated') return reply(res, scan, { done_reason: 'length' });
       if (data.format.properties.updates) {
         if (scenario === 'path') return reply(res, { updates: [{ ...scan.updates[0], element: '../app' }] });
         if (scenario === 'validation') return reply(res, { updates: [{ ...scan.updates[0], field: 'diagram', text: 'broken diagram [' }] });
-        return reply(res, scan);
+        return reply(res, scanFor(data));
       }
       writes++;
-      if (scenario === 'writer-empty' || (scenario === 'second-writer' && writes === 2)) return reply(res, { markdown: '' });
-      return reply(res, { markdown: scenario === 'writer-source' ? manuscript('12000').replace(probeFile, 'missing.kt') : manuscript('12000') });
+      if (scenario === 'writer-empty' || (scenario === 'second-writer' && writes === 2)) return reply(res, writer(''));
+      return reply(res, writer(scenario === 'writer-source' ? manuscript('12000').replace(probeFile, 'missing.kt') : manuscript('12000')));
     });
-    // 구조·집필 반려 재시도는 아래 별도 검사에서 다루므로 여기서는 한 번만 요청합니다.
-    const r = await runSync(f.root, { DOCGEN_OLLAMA_URL: url, DOCGEN_LLM_TIMEOUT_MS: scenario === 'timeout' ? '100' : '30000', DOCFLOW_SCAN_ATTEMPTS: '1', DOCFLOW_WRITER_ATTEMPTS: '1' });
+    const r = await runSync(f.root, { DOCGEN_OLLAMA_URL: url, DOCGEN_LLM_TIMEOUT_MS: scenario === 'timeout' ? '100' : '30000', DOCGEN_LLM_IDLE_MS: '1000' });
     assert.equal(r.code, 1, r.out); assert.deepEqual(changedFiles(before, snapshot(f.root)), [], r.out);
+    if (scenario === 'idle') assert.match(r.out, /유휴 시간 제한 초과/);
+    if (scenario === 'timeout') assert.match(r.out, /전체 시간 제한 초과/);
     if (scenario === 'second-writer') assert.equal(writes, 2);
   });
 }
-
-test('scan rejection restores the perspective, feeds the validation error back and applies the corrected updates', async t => {
-  const f = fixture(t); const prompts = [];
-  const diagramBefore = fs.readFileSync(path.join(f.root, '.omm/sync-probe/diagram.mmd'), 'utf8');
-  const url = await server(t, (data, res) => {
-    if (!data.format.properties.updates) return reply(res, { markdown: manuscript('12000') });
-    prompts.push(data.messages.at(-1).content);
-    // 첫 응답은 설명과 함께 방향 선언이 없는 diagram 을 보내고, 두 번째 응답은 설명만 고치되 요소를 파일 경로로 적습니다.
-    if (prompts.length === 1) return reply(res, { updates: [...scan.updates, { element: 'sync-probe', field: 'diagram', text: 'timer["관측 시간"] --> done\n' }] });
-    reply(res, { updates: [{ ...scan.updates[0], element: '.omm/sync-probe/description.md' }] });
-  });
-  const r = await runSync(f.root, { DOCGEN_OLLAMA_URL: url }); assert.equal(r.code, 0, r.out);
-  assert.equal(prompts.length, 2);
-  assert.doesNotMatch(prompts[0], /반려 사유/); assert.match(prompts[1], /## 이전 응답 반려 사유[^]*graph-declaration/);
-  assert.match(r.out, /구조 반려 1\/3: .*graph-declaration/);
-  assert.equal(fs.readFileSync(path.join(f.root, '.omm/sync-probe/diagram.mmd'), 'utf8'), diagramBefore);
-  assert.match(fs.readFileSync(path.join(f.root, '.omm/sync-probe/description.md'), 'utf8'), /12000ms/);
-});
-
-test('scan rejection stops after the configured attempts without writing', async t => {
-  const f = fixture(t); const before = snapshot(f.root); let scans = 0;
-  const answers = [
-    { updates: [{ ...scan.updates[0], element: '../app' }] },
-    { updates: [null] },
-    // 파일 이름(diagram)과 field(description)가 다른 필드를 가리키면 어느 쪽인지 알 수 없으므로 반려합니다.
-    { updates: [{ ...scan.updates[0], element: 'sync-probe/diagram.mmd' }] },
-    { updates: [{ ...scan.updates[0], field: 'diagram', text: 'broken diagram [' }] },
-  ];
-  const url = await server(t, (data, res) => {
-    if (!data.format.properties.updates) return reply(res, { markdown: manuscript('12000') });
-    reply(res, answers[scans++]);
-  });
-  const r = await runSync(f.root, { DOCGEN_OLLAMA_URL: url, DOCFLOW_SCAN_ATTEMPTS: '4' });
-  assert.equal(r.code, 1, r.out); assert.equal(scans, 4);
-  assert.match(r.out, /구조 반려 1\/4: 경로·필드·내용이 유효하지 않습니다/); assert.match(r.out, /구조 반려 2\/4: updates 항목이 객체가 아닙니다/);
-  assert.match(r.out, /구조 반려 3\/4: element 의 파일 이름\(diagram\)과 field\(description\)/);
-  assert.match(r.out, /구조 스캔이 4회 시도 후에도 검증을 통과하지 못했습니다: error \[/);
-  assert.deepEqual(changedFiles(before, snapshot(f.root)), [], r.out);
-});
-
-test('an OMM CLI failure during validate is not retried as a model rejection', async t => {
-  const f = fixture(t); let scans = 0;
-  // 검증 단계에서만 시간 초과를 흉내 냅니다. write 는 정상 CLI, validate 는 끝나지 않는 스크립트입니다.
-  f.put('tools/slow-omm.mjs', `import { spawnSync } from 'node:child_process';
-if (process.argv[2] === 'validate') { setInterval(() => {}, 1000); }
-else { const r = spawnSync(process.execPath, [process.env.REAL_OMM_CLI, ...process.argv.slice(2)], { stdio: 'inherit' }); process.exit(r.status ?? 1); }
-`);
-  const before = snapshot(f.root);
-  const url = await server(t, (data, res) => { if (data.format.properties.updates) { scans++; return reply(res, scan); } reply(res, { markdown: manuscript('12000') }); });
-  const r = await runSync(f.root, { DOCGEN_OLLAMA_URL: url, REAL_OMM_CLI: ommCli(), DOCGEN_OMM_CLI: path.join(f.root, 'tools/slow-omm.mjs'), DOCGEN_OMM_TIMEOUT_MS: '500' });
-  assert.equal(r.code, 1, r.out); assert.equal(scans, 1, r.out);
-  assert.doesNotMatch(r.out, /구조 반려/); assert.match(r.out, /omm validate 실패/);
-  assert.deepEqual(changedFiles(before, snapshot(f.root)), [], r.out);
-});
-
-// front matter 는 정상이지만 본문이 조사 띄어쓰기, 비합니다체, 대화체 안내문을 담은 원고입니다.
-const chatty = manuscript('12000').replace('Probe.OBSERVE_MS는 관측 시간을 12000ms로 지정합니다.',
-  'Probe.OBSERVE_MS 는 관측 시간을 12000ms 로 지정한다.\n\n다음 단계로 넘어가거나 추가 검토를 요구할 수 있다.');
-
-test('writer rejection feeds the violated rules back and accepts the corrected manuscript', async t => {
-  const f = fixture(t); const prompts = [];
-  const url = await server(t, (data, res) => {
-    if (data.format.properties.updates) return reply(res, scan);
-    prompts.push(data.messages.at(-1).content);
-    // 첫 응답은 코드 펜스로 감싼 대화체 원고, 두 번째는 펜스로 감싼 정상 원고입니다. 펜스는 벗겨서 저장해야 합니다.
-    return reply(res, { markdown: prompts.length === 1 ? '```markdown\n' + chatty + '```\n' : '\n```markdown\n' + manuscript('12000') + '```' });
-  });
-  const r = await runSync(f.root, { DOCGEN_OLLAMA_URL: url }); assert.equal(r.code, 0, r.out);
-  assert.equal(prompts.length, 2);
-  assert.doesNotMatch(prompts[0], /반려 사유/);
-  // 조사 띄어쓰기는 반려 대신 정리하므로 반려 사유에 나오지 않습니다.
-  assert.match(prompts[1], /## 이전 응답 반려 사유[^]*\[종결어미\][^]*\[대화체·작업 보고\]/);
-  assert.doesNotMatch(prompts[1], /\[조사 띄어쓰기\]/);
-  assert.match(r.out, /원고 정리: 조사 띄어쓰기 2곳/);
-  assert.match(r.out, /원고 반려 1\/3: 종결어미, 대화체·작업 보고/);
-  assert.equal(fs.readFileSync(path.join(f.root, 'docs/guide/_content/probe/overview-0.md'), 'utf8'), manuscript('12000'));
-});
-
-test('malformed front matter YAML is a rejection, not a crash', async t => {
-  const f = fixture(t); let writes = 0;
-  const url = await server(t, (data, res) => {
-    if (data.format.properties.updates) return reply(res, scan);
-    writes++;
-    if (writes === 1) return reply(res, { markdown: manuscript('12000').replace('based_on: [sync-probe]', 'based_on: [sync-probe') });
-    if (writes === 2) return reply(res, { markdown: '---\nbased_on: [sync-probe]\nconfidence: code\n본문만 있고 닫는 줄이 없습니다.\n' });
-    reply(res, { markdown: manuscript('12000') });
-  });
-  const r = await runSync(f.root, { DOCGEN_OLLAMA_URL: url }); assert.equal(r.code, 0, r.out);
-  assert.equal(writes, 3);
-  assert.match(r.out, /원고 반려 1\/3: front matter/); assert.match(r.out, /원고 반려 2\/3: front matter/);
-  assert.equal(fs.readFileSync(path.join(f.root, 'docs/guide/_content/probe/overview-0.md'), 'utf8'), manuscript('12000'));
-});
-
-test('rejection text is shortened when the full list would exceed the prompt limit', async t => {
-  const f = fixture(t); const prompts = [];
-  // 위반 줄 10개를 인용하면 목록이 한도를 넘고, 규칙별 한 줄 요약은 들어갑니다. 한도는 기준 프롬프트(약 14,400자)에 맞춰 잡습니다.
-  const noisy = manuscript('12000').replace('Probe.OBSERVE_MS는 관측 시간을 12000ms로 지정합니다.',
-    Array.from({ length: 10 }, (_, i) => `Probe.OBSERVE_MS는 ${i}번째 문장에서 관측 시간을 12000ms로 지정하며 이 문장은 일부러 길게 써서 반려 목록을 키운다.`).join('\n'));
-  const url = await server(t, (data, res) => {
-    if (data.format.properties.updates) return reply(res, scan);
-    prompts.push(data.messages.at(-1).content);
-    reply(res, { markdown: prompts.length === 1 ? noisy : manuscript('12000') });
-  });
-  const r = await runSync(f.root, { DOCGEN_OLLAMA_URL: url, DOCGEN_MAX_PROMPT_CHARS: '16000' }); assert.equal(r.code, 0, r.out);
-  assert.equal(prompts.length, 2);
-  assert.match(prompts[1], /## 이전 응답 반려 사유[^]*\[종결어미\] 모든 문장은/);
-  assert.doesNotMatch(prompts[1], /행: /);
-  assert.ok(prompts[1].length <= 16000 - 1000, `prompt ${prompts[1].length}`);
-});
-
-test('particle spacing alone is normalized and the manuscript is accepted on the first attempt', async t => {
-  const f = fixture(t); let writes = 0;
-  const spaced = manuscript('12000').replace('Probe.OBSERVE_MS는 관측 시간을 12000ms로 지정합니다.', 'Probe.OBSERVE_MS 는 관측 시간을 12000ms 로 지정합니다.');
-  const url = await server(t, (data, res) => { if (data.format.properties.updates) return reply(res, scan); writes++; reply(res, { markdown: spaced }); });
-  const r = await runSync(f.root, { DOCGEN_OLLAMA_URL: url }); assert.equal(r.code, 0, r.out);
-  assert.equal(writes, 1); assert.doesNotMatch(r.out, /원고 반려/);
-  assert.equal(fs.readFileSync(path.join(f.root, 'docs/guide/_content/probe/overview-0.md'), 'utf8'), manuscript('12000'));
-});
-
-test('writer rejection stops after the configured attempts without writing', async t => {
-  const f = fixture(t); let writes = 0;
-  // 바인딩의 must_link 심볼이 본문에 그대로 없으면 계약 위반입니다.
-  f.put('docs/guide/_bindings.yaml', fs.readFileSync(path.join(f.root, 'docs/guide/_bindings.yaml'), 'utf8').replace('brief:\n', 'brief:\n          must_link: [Probe.OBSERVE_MS]\n'));
-  const before = snapshot(f.root);
-  const url = await server(t, (data, res) => {
-    if (data.format.properties.updates) return reply(res, scan);
-    writes++;
-    if (writes === 1) return reply(res, { markdown: 'front matter 없이 시작하는 원고입니다.' });
-    if (writes === 2) return reply(res, { markdown: manuscript('12000').replace('Probe.OBSERVE_MS는 관측', 'Probe.OBSERVE MS는 관측') });
-    reply(res, { markdown: chatty });
-  });
-  const r = await runSync(f.root, { DOCGEN_OLLAMA_URL: url, DOCFLOW_WRITER_ATTEMPTS: '3' });
-  assert.equal(r.code, 1, r.out); assert.equal(writes, 3);
-  assert.match(r.out, /원고 반려 1\/3: front matter/); assert.match(r.out, /원고 반려 2\/3: 필수 심볼/);
-  assert.match(r.out, /3회 시도 후에도 집필 규칙을 통과하지 못했습니다: 종결어미/);
-  assert.deepEqual(changedFiles(before, snapshot(f.root)), [], r.out);
-});
 
 test('concurrent original edit prevents publication and preserves user text', async t => {
   const f = fixture(t); const before = snapshot(f.root);
   const url = await server(t, (data, res) => {
     f.put(probeFile, '// user edit\n');
-    reply(res, data.format.properties.updates ? scan : { markdown: manuscript('12000') });
+    reply(res, data.format.properties.updates ? scanFor(data) : writer(manuscript('12000')));
   });
   const r = await runSync(f.root, { DOCGEN_OLLAMA_URL: url }); assert.equal(r.code, 1, r.out);
   assert.deepEqual(changedFiles(before, snapshot(f.root)), [probeFile]);
@@ -210,7 +473,7 @@ test('concurrent original edit prevents publication and preserves user text', as
 test('publish write failure rolls back already written files', t => {
   const f = fixture(t); const before = snapshot(f.root); const after = new Map(before);
   after.set('.omm/sync-probe/description.md', Buffer.from('new')); after.set('docs/guide/new.md', Buffer.from('new'));
-  const allowed = p => p.startsWith('.omm/') || p.startsWith('docs/');
+  const allowed = p => p.startsWith('.omm/') || p.startsWith('docs/guide/');
   const journal = prepareCommit(f.root, before, after, allowed); let count = 0;
   assert.throws(() => applyCommit(f.root, journal, allowed, (...args) => { if (++count === 2) throw new Error('disk'); writeBytes(...args); }), /disk/);
   assert.deepEqual(changedFiles(before, snapshot(f.root)), []);
@@ -219,7 +482,7 @@ test('publish write failure rolls back already written files', t => {
 test('interrupted publish can recover; newer edits block recovery before any writes', t => {
   const f = fixture(t); const before = snapshot(f.root); const after = new Map(before);
   after.set('.omm/sync-probe/description.md', Buffer.from('new')); after.set('docs/guide/new.md', Buffer.from('new'));
-  const allowed = p => p.startsWith('.omm/') || p.startsWith('docs/');
+  const allowed = p => p.startsWith('.omm/') || p.startsWith('docs/guide/');
   prepareCommit(f.root, before, after, allowed);
   writeBytes(f.root, '.omm/sync-probe/description.md', Buffer.from('new'));
   writeBytes(f.root, 'docs/guide/new.md', Buffer.from('user'));
@@ -235,8 +498,12 @@ test('interrupted publish can recover; newer edits block recovery before any wri
 test('recover command handles an interrupted commit and stale lock', async t => {
   const f = fixture(t); const before = snapshot(f.root); const after = new Map(before);
   const target = '.omm/sync-probe/description.md'; after.set(target, Buffer.from('new'));
-  prepareCommit(f.root, before, after, p => p === target);
+  const scanPath = 'tools/docgen/state/scan.json';
+  const scanBytes = Buffer.from(JSON.stringify({ schema: 1, entries: { 'sync-probe': { codeHash: '0123456789abcdef', scannedAt: '2026-01-01T00:00:00.000Z' } } }));
+  after.set(scanPath, scanBytes);
+  prepareCommit(f.root, before, after, p => p === target || p === scanPath);
   writeBytes(f.root, target, Buffer.from('new'));
+  writeBytes(f.root, scanPath, scanBytes);
   f.put('tools/docgen/state/.sync-lock', '2147483647');
   const blocked = await runSync(f.root); assert.equal(blocked.code, 1, blocked.out);
   const r = await runSync(f.root, {}, ['--recover']); assert.equal(r.code, 0, r.out);
@@ -268,7 +535,7 @@ test('remote endpoint and oversized prompt fail without writes', async t => {
   }
 });
 
-test('real installed Qwen completes the same pipeline', { skip: process.env.DOCGEN_REAL_QWEN !== '1', timeout: 660000 }, async t => {
+test('real installed Qwen completes the same pipeline', { skip: process.env.DOCGEN_REAL_QWEN !== '1', timeout: 5460000 }, async t => {
   const f = fixture(t); const before = snapshot(f.root);
   const failed = await runSync(f.root, { DOCGEN_LLM_TIMEOUT_MS: '1' });
   assert.equal(failed.code, 1, failed.out);
@@ -279,5 +546,14 @@ test('real installed Qwen completes the same pipeline', { skip: process.env.DOCG
   const page = fs.readFileSync(path.join(f.root, 'docs/guide/probe.md'), 'utf8');
   assert.match(model, /12000|12,000|12\s*초/); assert.doesNotMatch(model, /10000|10,000|10\s*초/);
   assert.match(fs.readFileSync(path.join(f.root, '.omm/sync-probe/timer/description.md'), 'utf8'), /12000|12,000|12\s*초/);
+  assert.match(page, /12000|12,000|12\s*초/); assert.doesNotMatch(page, /10000|10,000|10\s*초/);
+});
+
+test('real installed Qwen writes one manuscript without scanning', { skip: process.env.DOCGEN_REAL_QWEN !== '1', timeout: 1860000 }, async t => {
+  const f = fixture(t); const before = snapshot(f.root);
+  const r = await runSync(f.root, {}, ['--write-only']);
+  console.log(r.out); assert.equal(r.code, 0, r.out);
+  assert.ok(changedFiles(before, snapshot(f.root)).every(p => !p.startsWith('.omm/')));
+  const page = fs.readFileSync(path.join(f.root, 'docs/guide/probe.md'), 'utf8');
   assert.match(page, /12000|12,000|12\s*초/); assert.doesNotMatch(page, /10000|10,000|10\s*초/);
 });

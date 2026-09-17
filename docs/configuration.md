@@ -134,17 +134,24 @@ Confluence는 지정한 서버와 같은 origin의 링크만 수집합니다. `p
 | `factsAdapter` | 프로젝트의 결정론적 사실 추출 모듈 경로입니다. |
 | `factsRenderer` | `renderFact(block, context)`로 사실을 배치하는 프로젝트 모듈 경로입니다. 선택적인 `renderStatus(context)`는 최신성 표 앞에 앱 버전 같은 프로젝트별 설명을 반환합니다. |
 | `sourceInputs` | 사실 추출기가 추가로 읽는 코드 파일 글롭입니다. |
+| `coverageAdapter` | 담당 요소 검사 대상을 내는 프로젝트 모듈 경로입니다. `coverageTargets({ globFiles, sourcePath })`가 대상 경로 → `{ kind, files }` Map을 반환하며, 바인딩의 `sources.*.elements.*.evidence`에 없는 대상은 `coverage --check`가 누락으로 판정합니다. 문서화하지 않을 대상은 바인딩의 `coverage.ignore`에 `path`와 `reason`을 적습니다. 생략하면 검사를 건너뜁니다. |
 | `styleDir` | 프로젝트가 보관하는 공통 집필 규칙 경로입니다. 생략하면 시스템 기본 규칙을 사용합니다. |
 | `design` | Slack·plain·custom 시각적 형식을 선택합니다. [디자인 안내](design.md)를 참고하세요. |
 | `DOCFLOW_HERMES_CLI` | Hermes 실행 파일의 위치입니다. |
 | `DOCGEN_OMM_CLI` | 고정한 OMM CLI 모듈의 위치입니다. |
 | `DOCGEN_OMM_TIMEOUT_MS` | OMM CLI 호출 1회의 제한 시간이며 기본 30초입니다. 시간 초과나 실행 오류는 모델 반려로 다시 요청하지 않고 그대로 실패합니다. |
-| `DOCGEN_LLM_TIMEOUT_MS` | 모델 호출 1회의 제한 시간이며 기본 300초입니다. Hermes의 재시도마다 따로 적용됩니다. |
+| `DOCGEN_LLM_TIMEOUT_MS` | 모델 호출 1회의 제한 시간이며 Ollama 직접 호출은 기본 1,800초, Hermes는 300초입니다. Hermes의 재시도마다 따로 적용됩니다. |
+| `DOCGEN_LLM_IDLE_MS` | Ollama 스트리밍에서 마지막 청크 이후 무응답 한도이며 기본 120초입니다. |
+| `DOCGEN_QWEN_NUM_PREDICT` | Ollama 직접 호출의 출력 토큰 한도이며 기본 8,192입니다. `done_reason`이 `stop`이 아니면 실패합니다. |
 | `DOCFLOW_AGENT_ATTEMPTS` | Hermes 실행 최대 횟수이며 기본 3회입니다. JSON 객체가 없거나 종료 코드가 0이 아닌 경우에만 다시 실행합니다. |
 | `DOCFLOW_SCAN_ATTEMPTS` | 구조 스캔 응답이 형태 검사나 `omm validate`에 실패했을 때 반려 사유를 붙여 다시 요청하는 최대 횟수이며 기본 3회입니다. 모델 호출 자체의 재시도(`DOCFLOW_AGENT_ATTEMPTS`)와 곱해집니다. |
 | `DOCFLOW_WRITER_ATTEMPTS` | 원고 응답이 계약이나 집필 규칙 검사에 실패했을 때 반려 사유를 붙여 다시 요청하는 최대 횟수이며 기본 3회입니다. 모델 호출 자체의 재시도와 곱해집니다. |
 | `DOCGEN_MAX_PROMPT_CHARS` | Hermes와 Ollama의 프롬프트 문자 수 제한이며 기본 60,000자입니다. Hermes는 추가한 JSON 출력 계약까지 검사합니다. 모델의 토큰 한도와는 별개입니다. |
 | `DOCGEN_QWEN_CONTEXT` | 직접 Ollama 호출의 컨텍스트이며 기본 32,768토큰입니다. |
+
+정적 사이트는 바인딩 `site.root` 디렉터리의 `_config.yml`(`title`, `description`, `lang`, `output`, `exclude`, `nav`, `page_label`)과 `_layouts/default.html`로 빌드합니다. `site build`는 `output`에 HTML·assets·`_inputs`·`.nojekyll`·`.site-manifest.json`을 쓰고, 매니페스트에 없는 기존 파일은 지우거나 덮어쓰지 않습니다. `site check`는 커밋된 산출물이 다시 빌드한 결과와 같은지와 내부 링크가 유효한지 검사합니다.
+
+요소 단위 스캔은 바인딩 `sources.<관점>.elements`로 정합니다. 키는 관점 루트가 `.`이고 하위 요소는 `benchmark/run-validity`처럼 상대 경로이며, 값의 `evidence`는 관점 evidence의 부분집합이어야 합니다. 지정하지 않은 요소는 가장 가까운 부모의 근거를 물려받고, 존재하지 않는 요소 키는 검증 실패입니다. 상태 디렉터리의 `scan.json`이 요소별 근거 해시와 완료 시각을 기록합니다.
 
 OMM 경로는 `.omm`을 사용합니다. 상태·바인딩·스타일·프로젝트 모듈 경로는 문서 프로젝트 안에 있어야 합니다. 배포와 원격 Git 쓰기는 공용 CLI가 수행하지 않으며 프로젝트 CI에서 연결합니다.
 

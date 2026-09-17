@@ -22,7 +22,8 @@ if(args[args.indexOf('--reasoning')+1]!=='none'||config.agent.reasoning_effort!=
 if(config.model.provider!=='custom'||config.model.default!=='Qwen/example'||config.model.base_url!=='http://127.0.0.1:8000/v1') process.exit(3);
 let prompt='';for await(const part of process.stdin)prompt+=part;
 if(process.env.FIXTURE_AGENT_WRITE==='1')fs.writeFileSync('outside.md','unauthorized');
-console.log(JSON.stringify(prompt.includes('구조 스캔:')?{updates:[{element:'sync-probe',field:'description',text:'관측 시간은 12000ms입니다.'}]}:{markdown:${JSON.stringify(manuscript('12000'))}}));`);
+const element=prompt.match(/^구조 스캔: (\\S+)/)?.[1];
+console.log(JSON.stringify(element?{updates:[{element,field:'description',text:'관측 시간은 12000ms입니다.'}]}:{sections:{answer_1:'Probe.OBSERVE_MS는 관측 시간을 12000ms로 지정합니다.'},sources:[${JSON.stringify(probeFile)}]}));`);
   const before=snapshot(f.root);
   const bad=await runSync(f.root,{DOCFLOW_HERMES_CLI:cli,FIXTURE_AGENT_WRITE:'1'}); assert.equal(bad.code,1,bad.out);
   assert.deepEqual(changedFiles(before,snapshot(f.root)),[]);
@@ -105,7 +106,7 @@ test('ordinary staged projects omit unrelated application files but keep supplie
 if(fs.existsSync('app')||fs.existsSync('unrelated'))process.exit(8);
 let prompt='';for await(const chunk of process.stdin)prompt+=chunk;
 if(!prompt.includes('12000L'))process.exit(9);
-console.log(JSON.stringify(prompt.includes('구조 스캔:')?{updates:[]}:{markdown:${JSON.stringify(manuscript('12000'))}}));`);
+console.log(JSON.stringify(prompt.includes('구조 스캔:')?{updates:[]}:{sections:{answer_1:'Probe.OBSERVE_MS는 관측 시간을 12000ms로 지정합니다.'},sources:[${JSON.stringify(probeFile)}]}));`);
   const r = await runSync(f.root, { DOCFLOW_HERMES_CLI: path.join(f.root, 'inspect-stage.mjs') });
   assert.equal(r.code, 0, r.out);
   assert.equal(fs.statSync(path.join(f.root, 'unrelated/large.bin')).size, 1024 * 1024);
@@ -125,14 +126,21 @@ test('custom site roots preserve legitimate build folders during staged sync', a
   assert.deepEqual(changedFiles(before, snapshot(f.root, null, ['.omm', 'manual', 'tools/docgen/state'])), []);
 });
 
+// 루프백 모의 Ollama 를 자식 프로세스 안에서 띄웁니다. 스트리밍 전송은 node:http 를 쓰므로 fetch 를 바꿔치기할 수 없습니다.
+const ollamaScript = (model, body) => `import assert from 'node:assert/strict'; import http from 'node:http';
+  const service = http.createServer(async (req, res) => { let text = ''; for await (const c of req) text += c;
+    assert.equal(JSON.parse(text).model, ${JSON.stringify(model)});
+    res.setHeader('Content-Type', 'application/x-ndjson');
+    res.end(JSON.stringify({done:true,done_reason:'stop',message:{content:'{"ok":true}'}}) + '\\n'); });
+  await new Promise(r => service.listen(0, '127.0.0.1', r));
+  process.env.DOCGEN_OLLAMA_URL = 'http://127.0.0.1:' + service.address().port;
+  try { const {runAgent} = await import('./tools/docgen/agent.mjs'); ${body} } finally { service.closeAllConnections(); service.close(); }`;
+
 test('Ollama uses the configured alias and refuses a conflicting environment model', t => {
   const f = makeFixture(); t.after(f.cleanup);
   const config = JSON.parse(fs.readFileSync(path.join(f.root, 'docflow.json')));
   config.agent.model = 'internal-model:latest'; f.put('docflow.json', JSON.stringify(config));
-  const script = `import assert from 'node:assert/strict'; import {runAgent} from './tools/docgen/agent.mjs';
-    globalThis.fetch = async (url, options) => { assert.equal(JSON.parse(options.body).model, 'internal-model:latest');
-      return new Response(JSON.stringify({done:true,done_reason:'stop',message:{content:'{"ok":true}'}})); };
-    assert.deepEqual(await runAgent('prompt', {type:'object'}), {ok:true});`;
+  const script = ollamaScript('internal-model:latest', `assert.deepEqual(await runAgent('prompt', {type:'object'}), {ok:true});`);
   for (const model of ['', 'internal-model:latest', 'different-model']) {
     const r = spawnSync(process.execPath, ['--input-type=module', '-e', script], {cwd:f.root, encoding:'utf8', env:{...process.env, DOCGEN_QWEN_MODEL:model}});
     assert.equal(r.status, model === 'different-model' ? 1 : 0, r.stderr);
@@ -144,10 +152,7 @@ test('Ollama compares the effective default model on repeated calls', t => {
   const f = makeFixture(); t.after(f.cleanup);
   const config = JSON.parse(fs.readFileSync(path.join(f.root, 'docflow.json')));
   config.agent = { kind: 'ollama' }; f.put('docflow.json', JSON.stringify(config));
-  const script = `import assert from 'node:assert/strict'; import {runAgent} from './tools/docgen/agent.mjs';
-    globalThis.fetch = async (url, options) => { assert.equal(JSON.parse(options.body).model, 'qwen3.5:4b');
-      return new Response(JSON.stringify({done:true,done_reason:'stop',message:{content:'{"ok":true}'}})); };
-    await runAgent('first', {type:'object'}); await runAgent('second', {type:'object'});`;
+  const script = ollamaScript('qwen3.5:4b', `await runAgent('first', {type:'object'}); await runAgent('second', {type:'object'});`);
   for (const model of ['', 'qwen3.5:4b', 'other-model']) {
     const r = spawnSync(process.execPath, ['--input-type=module', '-e', script], {cwd:f.root, encoding:'utf8', env:{...process.env, DOCGEN_QWEN_MODEL:model}});
     assert.equal(r.status, model === 'other-model' ? 1 : 0, r.stderr);
@@ -176,7 +181,7 @@ test('relative Hermes paths remain valid after sync moves into its stage', async
   const config = JSON.parse(fs.readFileSync(path.join(f.root, 'docflow.json')));
   config.agent = {kind:'hermes',model:'internal-model'}; f.put('docflow.json', JSON.stringify(config));
   f.put('cli tools/hermes.mjs', `let text=''; for await (const part of process.stdin) text+=part;
-    console.log(JSON.stringify(text.includes('구조 스캔:')?{updates:[]}:{markdown:${JSON.stringify(manuscript('12000'))}}));`);
+    console.log(JSON.stringify(text.includes('구조 스캔:')?{updates:[]}:{sections:{answer_1:'Probe.OBSERVE_MS는 관측 시간을 12000ms로 지정합니다.'},sources:[${JSON.stringify(probeFile)}]}));`);
   const result = await runSync(f.root, {DOCFLOW_HERMES_CLI:'cli tools/hermes.mjs'});
   assert.equal(result.code, 0, result.out);
 });

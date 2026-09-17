@@ -63,7 +63,13 @@ async function server(t, handler) {
   t.after(() => { service.closeAllConnections(); service.close(); });
   return `http://127.0.0.1:${service.address().port}`;
 }
-const reply = (res, content) => res.end(JSON.stringify({ done: true, done_reason: 'stop', message: { content: JSON.stringify(content) } }));
+// 스트리밍 Ollama 응답(NDJSON)을 흉내 냅니다.
+const reply = (res, content) => {
+  res.setHeader('Content-Type', 'application/x-ndjson');
+  res.write(JSON.stringify({ done: false, message: { content: JSON.stringify(content) } }) + '\n');
+  res.end(JSON.stringify({ done: true, done_reason: 'stop', message: { content: '' } }) + '\n');
+};
+const elementOf = data => data.format.properties.updates.items.properties.element.enum[0];
 
 test('sync validates a sequence perspective with the type rules, rejects a graph answer and accepts the corrected diagram', async t => {
   const f = makeFixture(); t.after(f.cleanup);
@@ -71,18 +77,18 @@ test('sync validates a sequence perspective with the type rules, rejects a graph
   const prompts = [];
   const url = await server(t, (data, res) => {
     const prompt = data.messages.at(-1).content;
-    if (!data.format.properties.updates) return reply(res, { markdown: manuscript('12000') });
-    if (!prompt.startsWith('구조 스캔: lifecycle')) return reply(res, { updates: [{ element: 'sync-probe', field: 'description', text: 'Probe.OBSERVE_MS는 12000ms입니다.' }] });
+    if (!data.format.properties.updates) return reply(res, { sections: { answer_1: 'Probe.OBSERVE_MS는 관측 시간을 12000ms로 지정합니다.' }, sources: [probeFile] });
+    if (!prompt.startsWith('구조 스캔: lifecycle')) return reply(res, { updates: [{ element: elementOf(data), field: 'description', text: 'Probe.OBSERVE_MS는 12000ms입니다.' }] });
     prompts.push(prompt);
     // 첫 응답은 기존 종류(graph)로 다시 그리고, 두 번째 응답은 요구한 sequence 로 그립니다.
     if (prompts.length === 1) return reply(res, { updates: [{ element: 'lifecycle', field: 'diagram', text: 'graph LR\n  a["새 그림"] -->|조건| b["끝"]\n' }] });
     reply(res, { updates: [{ element: 'lifecycle', field: 'diagram', text: sequence }] });
   });
-  const r = await runSync(f.root, { DOCGEN_OLLAMA_URL: url }); assert.equal(r.code, 0, r.out);
+  const r = await runSync(f.root, { DOCGEN_OLLAMA_URL: url, DOCFLOW_SCAN_ATTEMPTS: '3' }); assert.equal(r.code, 0, r.out);
   assert.equal(prompts.length, 2);
   assert.match(prompts[0], /diagram 필드는 첫 줄이 "sequenceDiagram" 인 시퀀스 다이어그램/);
   assert.match(prompts[1], /## 이전 응답 반려 사유[^]*diagram-type/);
-  assert.match(r.out, /- lifecycle \(diagram_type: sequence\)/);
+  assert.match(r.out, /- lifecycle \(diagram_type: sequence, 요소 1개\)/);
   assert.match(r.out, /구조 반려 1\/3: error \[diagram-type\]/);
   assert.equal(fs.readFileSync(path.join(f.root, '.omm/lifecycle/diagram.mmd'), 'utf8'), sequence);
   assert.match(fs.readFileSync(path.join(f.root, 'docs/guide/probe.md'), 'utf8'), /```mermaid\nsequenceDiagram\n/);

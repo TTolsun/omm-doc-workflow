@@ -1,6 +1,6 @@
 {
   "name": "@ttolsun/omm-doc-workflow",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -15,6 +15,7 @@
     "preview": "npm run preview:build && node scripts/serve-preview.mjs"
   },
   "dependencies": {
+    "marked": "18.0.13",
     "oh-my-mermaid": "0.2.0"
   },
   "devDependencies": {

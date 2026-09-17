@@ -7,14 +7,14 @@ import { spawnSync } from 'node:child_process';
 import { REPO_ROOT, readBindings, globFiles, resetGlobCache, sourcePath } from './lib.mjs';
 import { CONFIG, CONFIG_REL, STATE_REL, STATE_DIR, SOURCE_ROOT } from './config.mjs';
 import { collectChanges } from './changes.mjs';
-import { collectKeys, readContentBlock, citedFiles } from './model.mjs';
+import { collectKeys, readContentBlock, citedFiles, linkedFiles } from './model.mjs';
 process.env.DOCFLOW_STATE_REL = STATE_REL;
 import { ommCli } from './omm-cli.mjs';
 import { resolveHermesCli } from './hermes-cli.mjs';
 import { snapshot, changedFiles, copySnapshot, prepareCommit, applyCommit, recover, journalPath, acquireLock } from './transaction.mjs';
 
 function outputPolicy(bindings) {
-  const exact = new Set([`${STATE_REL}/facts.json`, `${STATE_REL}/evidence.json`, `${STATE_REL}/batch.json`, `${STATE_REL}/external.json`, `${STATE_REL}/scopes.json`]);
+  const exact = new Set([`${STATE_REL}/facts.json`, `${STATE_REL}/evidence.json`, `${STATE_REL}/batch.json`, `${STATE_REL}/external.json`, `${STATE_REL}/scopes.json`, `${STATE_REL}/scan.json`]);
   const prefixes = [];
   if (CONFIG.design) exact.add(`${bindings.site.root}/assets/docflow-design.css`);
   if (['reading', 'architecture'].includes(CONFIG.design?.preset)) {
@@ -42,6 +42,7 @@ function sourceSnapshot(bindings) {
   const files = new Set(globFiles(globs));
   for (const k of collectKeys(bindings).filter(k => k.kind === 'content')) {
     for (const rel of citedFiles(readContentBlock(bindings, k.page, k.block)?.meta)) files.add(rel);
+    for (const rel of linkedFiles(k.block)) files.add(rel);
   }
   return new Map([...files].sort().map(rel => [rel, fs.readFileSync(sourcePath(rel))]));
 }
