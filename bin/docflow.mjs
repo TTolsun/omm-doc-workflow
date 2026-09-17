@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const args = process.argv.slice(2);
 const command = args.shift();
@@ -12,11 +13,11 @@ for (const [flag, variable] of [['--project', 'DOCFLOW_PROJECT_ROOT'], ['--sourc
     args.splice(index, 2);
   }
 }
-const commands = ['sync', 'collect', 'extract', 'verify', 'generate', 'brief', 'doctor', 'ack', 'design', 'inspect'];
+const commands = ['sync', 'collect', 'extract', 'verify', 'generate', 'brief', 'doctor', 'ack', 'design', 'inspect', 'coverage', 'site', 'check'];
 if (!commands.includes(command)) {
-  console.log('docflow <sync|collect|extract|verify|generate|brief|doctor|ack|design|inspect> --project <documentation-repo> [--source <code-repo>] [--config <relative-json>]');
+  console.log('docflow <sync|collect|extract|verify|generate|brief|doctor|ack|design|inspect|coverage|site|check> --project <documentation-repo> [--source <code-repo>] [--config <relative-json>]');
   process.exitCode = command && command !== '--help' ? 1 : 0;
 } else {
-  process.argv = [process.execPath, new URL(`../src/${command}.mjs`, import.meta.url).pathname, ...args];
+  process.argv = [process.execPath, fileURLToPath(new URL(`../src/${command}.mjs`, import.meta.url)), ...args];
   await import(`../src/${command}.mjs`);
 }

@@ -1,3 +1,4 @@
+// 반려 재요청은 rejection.test.mjs 에서 따로 검사합니다. 여기서는 호출 횟수를 세므로 시도 횟수를 1로 고정합니다.
 // Disposable input for deterministic fault tests and the opt-in local model smoke test.
 import fs from 'node:fs';
 import os from 'node:os';
@@ -5,7 +6,8 @@ import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { ommCli } from '../src/omm-cli.mjs';
 export const probeFile = 'app/src/main/java/dev/halcamera/Probe.kt';
-export function makeFixture(blocks = 1) {
+export const timerFile = 'app/src/main/java/dev/halcamera/Timer.kt';
+export function makeFixture(blocks = 1, { splitEvidence = false } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hal-docgen-fixture-'));
   const put = (rel, text) => {
     const p = path.join(root, rel); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, text);
@@ -23,6 +25,14 @@ export function makeFixture(blocks = 1) {
   put('.omm/sync-probe/timer/description.md', 'Probe.OBSERVE_MS는 10000ms입니다.\n');
   let binding = 'version: 2\nsite:\n  root: docs/guide\n  content_dir: _content\n  inputs_dir: _inputs\nsources:\n  sync-probe:\n    kind: omm\n    evidence:\n      - ' + probeFile + '\npages:\n  probe.md:\n    title: 관측 시간\n    blocks:\n      - id: status\n        kind: status\n';
   let page = '# 관측 시간\n\n이 문장은 사람이 관리합니다.\n\n<!-- omm:begin id=status -->\n<!-- omm:end id=status -->\n';
+  // Element-level scan units: the perspective root and its timer child each name their own evidence.
+  binding = binding.replace('\npages:', '\n    elements:\n      .:\n        evidence:\n          - ' + probeFile + '\n      timer:\n        evidence:\n          - ' + probeFile + '\npages:');
+  if (splitEvidence) {
+    put(timerFile, 'package dev.halcamera\nobject Timer { const val OBSERVE_MS = 10000L }\n');
+    put('.omm/sync-probe/timer/description.md', 'Timer.OBSERVE_MS는 10000ms입니다.\n');
+    binding = binding.replace('      - ' + probeFile + '\n    elements:', '      - ' + probeFile + '\n      - ' + timerFile + '\n    elements:')
+      .replace('      timer:\n        evidence:\n          - ' + probeFile, '      timer:\n        evidence:\n          - ' + timerFile);
+  }
   for (let i = 0; i < blocks; i++) {
     binding += `      - id: overview-${i}\n        kind: content\n        based_on: [sync-probe]\n        confidence: code\n        brief:\n          reader: HAL 개발자\n          answers:\n            - Probe.OBSERVE_MS가 지정하는 관측 시간은 몇 ms인가\n`;
     page += `\n<!-- omm:begin id=overview-${i} -->\n<!-- omm:end id=overview-${i} -->\n`;
@@ -45,7 +55,7 @@ export const manuscript = ms => `---\nbased_on: [sync-probe]\nconfidence: code\n
 export function runSync(root, env = {}, args = []) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [path.join(root, 'tools/docgen/sync.mjs'), ...args], {
-      cwd: root, env: { ...process.env, DOCGEN_OMM_CLI: ommCli(), ...env },
+      cwd: root, env: { ...process.env, DOCGEN_OMM_CLI: ommCli(), DOCFLOW_SCAN_ATTEMPTS: '1', DOCFLOW_WRITER_ATTEMPTS: '1', ...env },
       windowsHide: true,
     });
     let out = ''; child.stdout.on('data', x => { out += x; }); child.stderr.on('data', x => { out += x; });

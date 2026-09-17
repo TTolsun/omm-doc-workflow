@@ -12,7 +12,7 @@
 
 ## 1. 실행 환경을 확인합니다
 
-Node 24 이상, Git, OMM 0.2.0이 필요합니다. Hermes 실행을 선택하면 `hermes chat --help`에서 `--query-file`과 `--reasoning` 지원 여부를 확인합니다. Hermes는 사용자 환경에 설치된 것을 사용하며, 공용 실행기가 다른 에이전트를 몰래 설치하지 않습니다.
+Node 24 이상, Git이 필요합니다. OMM 0.2.0과 Markdown 파서(marked)는 `npm ci`가 설치합니다. Hermes 실행을 선택하면 `hermes chat --help`에서 `--query-file`과 `--reasoning` 지원 여부를 확인합니다. Hermes는 사용자 환경에 설치된 것을 사용하며, 공용 실행기가 다른 에이전트를 몰래 설치하지 않습니다.
 
 ```bash
 node --version

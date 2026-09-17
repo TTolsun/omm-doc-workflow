@@ -66,7 +66,9 @@ flowchart TD
 | 문서 목차 | 프로젝트가 지정한 페이지·구조·원고 블록 | 바인딩 파일 |
 | 다이어그램 종류 | 관점별 flow, component, class, sequence, state | `sources.<관점>.diagram_type` |
 | 시각적 형식 | reading, Architecture Intelligence, Slack, plain 또는 프로젝트 CSS | `design.preset` |
-| 사실 추출 | 기본값 없이 시작하거나 프로젝트용 추출기 연결 | `factsAdapter` |
+| 사실 추출 | 기본값 없이 시작하거나 프로젝트용 추출기 연결 | `factsAdapter`, `factsRenderer` |
+| 담당 요소 검사 | 새 화면·모듈에 담당 구조 요소가 있는지 검사할 대상 목록 | `coverageAdapter` |
+| 정적 사이트 | 원고 디렉터리를 HTML로 빌드해 커밋(GitHub Pages `/docs`) | `site` 명령, 원고 디렉터리의 `_config.yml` |
 | 실행 시점 | 수동 실행 또는 기존 미러링 작업의 성공 후 호출 | 외부 작업 스케줄러·CI |
 | 배포 | 생성 파일을 프로젝트의 기존 배포 과정에 전달 | 프로젝트별 CI |
 
@@ -146,11 +148,19 @@ node bin/docflow.mjs doctor --project /work/camera-hal-docs --source /work/camer
 node bin/docflow.mjs sync --project /work/camera-hal-docs --dry-run
 node bin/docflow.mjs sync --project /work/camera-hal-docs
 node bin/docflow.mjs sync --project /work/camera-hal-docs --recover
+node bin/docflow.mjs check --project /work/camera-hal-docs [--ci|--build]   # CI 와 같은 순서의 전체 검사
+node bin/docflow.mjs verify --project /work/camera-hal-docs --accept --reviewer=이름
+node bin/docflow.mjs coverage --project /work/camera-hal-docs --check
+node bin/docflow.mjs site --project /work/camera-hal-docs build
 ```
+
+`check`는 디자인 일치 → (reading·architecture 프리셋이면) 근거 표시 정보 일치 → 사실 추출 → 최신성 → 담당 요소 → 생성 일치 → 사이트 일치 순서로 실행하며, `--ci`는 마지막에 `git diff --exit-code`로 상태 파일·원고·산출물이 커밋과 같은지 확인하고 `--build`는 검사를 통과한 뒤 사이트를 빌드합니다.
+
+구조 스캔은 관점을 요소 단위로 나눠 실행합니다. 바인딩 `sources.<관점>.elements`에 요소별 근거를 적고(지정하지 않은 요소는 가장 가까운 부모의 근거를 물려받습니다), 요소당 입력은 60,000자 안이어야 하며, 근거가 바뀌지 않은 요소는 `scan.json` 기록으로 건너뜁니다. 원고는 질문별 답변과 인용 파일만 모델에서 받아 프로그램이 front matter를 조립하고, 근거는 원고가 인용한 파일과 `must_link` 파일로 한정합니다. 근거가 한도를 넘으면 원본 문자를 자르지 않고 나눠 요약한 뒤 집필합니다. 두 단계 모두 형태·문체 검사에 걸리면 반려 사유를 붙여 다시 요청합니다.
 
 설정 파일은 기본적으로 문서 프로젝트의 `docflow.json`입니다. 다른 경로는 `--config`로 지정합니다. [Camera HAL 예제](examples/camera-hal/)와 [설정 안내](docs/configuration.md)를 참고하세요.
 
-정기 실행은 [미러링 연동 안내](docs/mirror-integration.md)를 따릅니다. 공개 프로젝트에서는 공용 엔진을 별도로 설치해 호출하며, 비공개 시스템 저장소 전체를 공개 저장소에 복사하지 않습니다.
+정기 실행은 [미러링 연동 안내](docs/mirror-integration.md)를 따릅니다. 소비 프로젝트는 이 저장소를 npm 의존성(`github:TTolsun/omm-doc-workflow#v0.5.0`)으로 고정해 설치하고 얇은 진입점에서 `bin/docflow.mjs`를 호출합니다. [hal-camera의 `tools/docgen/`](https://github.com/TTolsun/hal-camera/tree/main/tools/docgen)이 그 예이며, 프로젝트에는 설정·어댑터·상태 파일만 둡니다.
 
 ## 검증 범위와 현재 제한
 

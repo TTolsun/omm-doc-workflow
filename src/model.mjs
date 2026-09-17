@@ -5,7 +5,7 @@
 // 저장하고, 생성기는 저장된 결과를 읽어 표시만 합니다.
 import fs from "node:fs";
 import path from "node:path";
-import { globFiles, hashFiles, hashText, repoPath, readOmmField, ommExists, ommChildren } from "./lib.mjs";
+import { globFiles, hashFiles, hashText, repoPath, readOmmField, ommExists, ommChildren, ommFieldPath } from "./lib.mjs";
 import { parseYaml } from "./yaml-lite.mjs";
 import { CONFIG, SOURCE_ROOT, STATE_DIR, sourcePath } from './config.mjs';
 import { selectCommits, selectExternal } from './evidence-scope.mjs';
@@ -140,6 +140,42 @@ export function collectKeys(bindings) {
   return keys;
 }
 
+// Freshness remains perspective-wide; these are the smaller scan units.
+export function collectElements(bindings, source) {
+  const definition = bindings.sources[source];
+  if (!/^[a-z0-9-]+$/.test(source) || definition?.kind !== "omm") throw new Error(`알 수 없는 OMM 관점: ${source}`);
+  const overrides = definition.elements ?? {};
+  if (typeof overrides !== "object" || Array.isArray(overrides)) throw new Error(`${source}: elements는 매핑이어야 합니다.`);
+  const list = [];
+  const paths = new Set();
+  const evidenceList = (value, element) => {
+    if (!Array.isArray(value) || value.some(p => typeof p !== "string" || !p.trim())) {
+      throw new Error(`${element}: evidence는 경로 목록이어야 합니다.`);
+    }
+    return value;
+  };
+  const perspectiveEvidence = evidenceList(definition.evidence ?? [], source);
+  const visit = (relative, parent, inherited) => {
+    const element = relative === "." ? source : `${source}/${relative}`;
+    const configured = Object.hasOwn(overrides, relative);
+    const evidence = configured ? evidenceList(overrides[relative]?.evidence, element) : inherited;
+    paths.add(relative);
+    list.push({ path: element, parent, evidence: [...evidence],
+      fields: OMM_FIELDS.filter(field => fs.existsSync(ommFieldPath(element, field))) });
+    for (const child of ommChildren(element)) visit(relative === "." ? child : `${relative}/${child}`, element, evidence);
+  };
+  if (ommExists(source)) visit(".", null, perspectiveEvidence);
+  for (const key of Object.keys(overrides)) {
+    if (!paths.has(key)) throw new Error(`${source}: 존재하지 않는 elements 경로: ${key}`);
+  }
+  const allowed = new Set(globFiles(perspectiveEvidence));
+  for (const element of list) {
+    const outside = globFiles(element.evidence).filter(file => !allowed.has(file));
+    if (outside.length) throw new Error(`${element.path}: 요소 evidence는 관점 evidence의 부분집합이어야 합니다: ${outside.join(", ")}`);
+  }
+  return list;
+}
+
 function ommModelText(source) {
   const parts = [];
   for (const field of OMM_FIELDS) parts.push(`${field}\u0000${readOmmField(source, field) ?? ""}`);
@@ -148,6 +184,14 @@ function ommModelText(source) {
 }
 
 // 원고가 인용한 근거 파일. `path/to/File.kt#Symbol` 형태를 허용하고 파일 부분만 씁니다.
+// must_link 심볼과 이름이 같은 코드 파일. 관점 evidence 밖에 있어도 원고 근거가 됩니다.
+export function linkedFiles(block) {
+  const symbols = new Set(block.brief?.must_link ?? []);
+  if (!symbols.size) return [];
+  return globFiles(['**/*']).filter(file => symbols.has(path.basename(file)) ||
+    symbols.has(path.basename(file, path.extname(file))));
+}
+
 export function citedFiles(meta) {
   const cited = Array.isArray(meta?.sources) ? meta.sources : [];
   return cited.map((s) => String(s).split("#")[0]).filter(Boolean);
@@ -170,7 +214,7 @@ export function computeHashes(bindings, entry) {
   const content = readContentBlock(bindings, entry.page, entry.block);
   const basedOn = entry.block.based_on ?? [];
   const globs = basedOn.flatMap((name) => bindings.sources[name]?.evidence ?? []);
-  const files = new Set(globFiles(globs));
+  const files = new Set([...globFiles(globs), ...linkedFiles(entry.block)]);
   const missingCited = [];
   for (const rel of citedFiles(content?.meta)) {
     if (fs.existsSync(sourcePath(rel))) files.add(rel);

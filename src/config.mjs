@@ -11,7 +11,7 @@ export function within(root, rel) {
 }
 export const CONFIG = JSON.parse(fs.readFileSync(within(PROJECT_ROOT, CONFIG_REL), 'utf8'));
 if (CONFIG.version !== 1) throw new Error('docflow.json version must be 1');
-for (const name of ['factsAdapter', 'factsRenderer', 'styleDir']) if (CONFIG[name]) within(PROJECT_ROOT, CONFIG[name]);
+for (const name of ['factsAdapter', 'factsRenderer', 'coverageAdapter', 'styleDir']) if (CONFIG[name]) within(PROJECT_ROOT, CONFIG[name]);
 if (CONFIG.design && !['reading', 'architecture', 'slack', 'plain', 'custom'].includes(CONFIG.design.preset)) throw new Error('design.preset must be reading, architecture, slack, plain or custom');
 for (const name of ['reference', 'stylesheet']) if (CONFIG.design?.[name]) within(PROJECT_ROOT, CONFIG.design[name]);
 if (CONFIG.design?.preset === 'custom' && !CONFIG.design.stylesheet) throw new Error('custom design requires a stylesheet');
