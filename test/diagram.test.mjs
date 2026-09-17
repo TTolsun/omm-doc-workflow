@@ -30,6 +30,9 @@ test('diagram checker applies type-specific rules and keeps warnings from failin
   assert.deepEqual(errors('sequenceDiagram\n    participant A', 'sequence'), ['sequence-message']);
   assert.deepEqual(errors('classDiagram\n    nothing here', 'class'), ['class-line', 'class-declaration']);
   assert.deepEqual(errors('classDiagram\n    class A {\n        +x()', 'class'), ['balanced-brackets']);
+  // namespace 안의 class 선언도 선언으로 세고, 홀수 따옴표가 있는 줄이 뒤 줄의 중괄호 집계를 망치지 않습니다.
+  assert.deepEqual(errors('classDiagram\n    namespace demo_hal {\n        class A {\n            +x() bool\n        }\n        class B\n    }\n    A ..> B : uses', 'class'), []);
+  assert.deepEqual(errors('classDiagram\n    note "odd \\"quote"\n    class A {\n        +x() bool\n    }', 'class'), []);
   assert.deepEqual(errors('stateDiagram-v2\n    Idle --> Busy\n    weird', 'state'), ['state-line']);
   assert.deepEqual(errors('stateDiagram-v2\n    state Group {\n    Idle --> Busy : go\n    }\n    note right of Idle\n      설명\n    end note', 'state'), []);
   assert.deepEqual(errors('stateDiagram-v2\n    note right of Idle\n      설명', 'state'), ['state-line', 'state-transition']);

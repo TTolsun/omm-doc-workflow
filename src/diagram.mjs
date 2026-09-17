@@ -85,8 +85,9 @@ export function checkDiagram(text, type, context = null) {
     push('error', 'diagram-type', `diagram 은 "${spec.example}" 로 시작해야 합니다 (diagram_type: ${type}).`, content[0]?.no ?? 1);
   }
   for (const { line, no } of content) if (!balanced(line)) push('error', 'balanced-brackets', `괄호 짝이 맞지 않습니다: ${line}`, no);
-  const braces = bracketCounts(content.map(x => x.line).join('\n'));
-  if (braces['{'] !== braces['}']) push('error', 'balanced-brackets', '중괄호 짝이 맞지 않습니다.');
+  // 따옴표 상태가 줄을 넘어 새지 않도록 줄마다 세어 더합니다.
+  const braces = content.map(x => bracketCounts(x.line)).reduce((sum, c) => sum + c['{'] - c['}'], 0);
+  if (braces !== 0) push('error', 'balanced-brackets', '중괄호 짝이 맞지 않습니다.');
   if (context) {
     for (const [, ref] of String(text).matchAll(/@([\w-]+)/g)) {
       if (ref === context.element) push('error', 'ref-self', `자기 자신을 참조합니다: @${ref}`);
@@ -107,7 +108,12 @@ export function checkDiagram(text, type, context = null) {
   } else if (type === 'class') {
     let declared = 0, depth = 0;
     for (const { line, no } of body) {
-      if (depth > 0) { if (line === '}') depth -= 1; continue; }
+      // namespace 블록 안의 class 선언도 선언으로 세고, 그 안의 멤버 줄은 검사하지 않습니다.
+      if (depth > 0) {
+        if (line === '}') depth -= 1;
+        else if (line.endsWith('{')) { depth += 1; if (/^class\s+\S+/.test(line)) declared += 1; }
+        continue;
+      }
       if (CLASS_RELATION.test(line) || /^class\s+\S+/.test(line) || /^<<\S+>>\s+\S+/.test(line) || /^\S+\s*:\s*\S/.test(line)) declared += 1;
       if (!CLASS_RELATION.test(line) && !CLASS_LINE.test(line)) push('error', 'class-line', `클래스 다이어그램 문법이 아닙니다(중괄호 밖에는 class 선언과 A <|-- B : 이유 관계만 허용): ${line}`, no);
       if (line.endsWith('{')) depth += 1;
