@@ -54,6 +54,8 @@ node bin/docflow.mjs generate --project examples/camera-hal --source fixtures/ca
 
 워커 파이프라인은 `collect` → `extract` → `verify` → Qwen 구조 스캔(OMM CLI `write`/`validate`) → Qwen 원고 집필(`brief.mjs` 프롬프트) → `verify` → `inspect` → `generate` → `design` 순서입니다. 각 단계는 `src/` 스크립트를 자식 프로세스로 실행합니다. 구조 스캔과 원고 집필은 모델 응답을 결정적으로 검사하고(원고는 [src/manuscript-lint.mjs](src/manuscript-lint.mjs)), 위반이 있으면 반려 사유를 붙여 `DOCFLOW_SCAN_ATTEMPTS`·`DOCFLOW_WRITER_ATTEMPTS`(기본 3회)까지 다시 요청합니다. 검사기는 형식과 문체만 보며 사실 관계는 판단하지 않습니다.
 
+바인딩의 `sources.<관점>.diagram_type`(`flow` 기본값, `component`, `class`, `sequence`, `state`)이 관점의 그림 종류를 정합니다. [src/diagram.mjs](src/diagram.mjs)가 종류별 프롬프트 규칙과 검사기를 가지며, OMM 0.2.0의 `omm validate`는 graph 선언만 받으므로 UML 계열은 CLI 대신 이 검사기로 검증합니다. 기본값이 아닌 종류는 `omm:<source>`의 `modelHash`에 들어갑니다.
+
 ### 검증 키와 최신성 상태
 
 [src/model.mjs](src/model.mjs)가 "무엇을 검사하는가"를 한 곳에 정의합니다. 검증 키는 `omm:<source>`(구조 관점)와 `content:<page>/<block-id>`(원고 블록) 두 종류입니다. 각 키는 `codeHash`(근거 코드)와 `modelHash`(원본 문서, 외부 근거, 집필 규칙, 사실, 사람 입력)를 가지며, `stateOf()`가 `fresh`, `stale`, `unreviewed`, `unknown`, `missing`을 판정합니다.

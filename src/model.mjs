@@ -9,6 +9,7 @@ import { globFiles, hashFiles, hashText, repoPath, readOmmField, ommExists, ommC
 import { parseYaml } from "./yaml-lite.mjs";
 import { CONFIG, SOURCE_ROOT, STATE_DIR, sourcePath } from './config.mjs';
 import { selectCommits, selectExternal } from './evidence-scope.mjs';
+import { diagramTypeOf, DEFAULT_DIAGRAM_TYPE } from './diagram.mjs';
 
 export const OMM_FIELDS = ["description", "diagram", "constraint", "concern", "context", "todo", "note"];
 
@@ -128,7 +129,7 @@ export function collectKeys(bindings) {
   const keys = [];
   for (const [name, source] of Object.entries(bindings.sources)) {
     if (source.kind !== "omm") continue;
-    keys.push({ key: `omm:${name}`, kind: "omm", source: name, evidence: source.evidence ?? [] });
+    keys.push({ key: `omm:${name}`, kind: "omm", source: name, evidence: source.evidence ?? [], diagramType: diagramTypeOf(source) });
   }
   for (const [page, def] of Object.entries(bindings.pages)) {
     for (const block of def.blocks ?? []) {
@@ -155,9 +156,13 @@ export function citedFiles(meta) {
 export function computeHashes(bindings, entry) {
   if (entry.kind === "omm") {
     const files = globFiles(entry.evidence);
+    // diagram_type 을 바꾸면 그림을 새 종류로 다시 그려야 하므로 원본 해시에 넣어 재스캔·재검토 대상으로 만듭니다.
+    // 기본값 flow 는 해시에 넣지 않으므로 기존 프로젝트의 검토 기록은 그대로 유효합니다.
+    const type = entry.diagramType ?? diagramTypeOf(bindings.sources[entry.source]);
+    const typeText = type === DEFAULT_DIAGRAM_TYPE ? "" : `\u0001diagram-type\u0000${type}`;
     return {
       codeHash: hashFiles(files),
-      modelHash: hashText(ommModelText(entry.source) + externalEvidenceText(bindings, entry)),
+      modelHash: hashText(ommModelText(entry.source) + externalEvidenceText(bindings, entry) + typeText),
       fileCount: files.length,
       exists: ommExists(entry.source),
     };

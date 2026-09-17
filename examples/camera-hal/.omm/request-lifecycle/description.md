@@ -1,0 +1,1 @@
+CaptureSession.cpp의 submit은 canAccept(inFlight_)가 false이면 바로 false를 반환합니다. true이면 slots_를 순서대로 돌며 reserve가 성공한 첫 BufferSlot에 submit을 호출하고 inFlight_를 1 늘립니다. complete는 release가 성공한 경우에만 inFlight_를 1 줄입니다.

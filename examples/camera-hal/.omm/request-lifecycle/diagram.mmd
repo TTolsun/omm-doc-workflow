@@ -1,0 +1,20 @@
+sequenceDiagram
+    participant Caller as 호출자
+    participant Session as CaptureSession
+    participant Queue as RequestQueue
+    participant Slot as BufferSlot
+    Caller->>Session: submit()
+    Session->>Queue: canAccept(inFlight_)
+    alt inFlight_ >= kBufferLimit
+        Queue-->>Session: false
+        Session-->>Caller: false
+    else inFlight_ < kBufferLimit
+        Queue-->>Session: true
+        Session->>Slot: reserve()
+        Slot-->>Session: true (Free 슬롯)
+        Session->>Slot: submit()
+        Session-->>Caller: true (inFlight_ + 1)
+    end
+    Caller->>Session: complete(slot)
+    Session->>Slot: release()
+    Slot-->>Session: true이면 inFlight_ - 1

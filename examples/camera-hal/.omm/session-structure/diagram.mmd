@@ -1,0 +1,29 @@
+classDiagram
+    class CaptureSession {
+        -BufferSlot slots_[kBufferLimit]
+        -unsigned inFlight_
+        +submit() bool
+        +complete(unsigned slot) void
+        +inFlight() unsigned
+    }
+    class BufferSlot {
+        -SlotState state_
+        +state() SlotState
+        +reserve() bool
+        +submit() bool
+        +release() bool
+    }
+    class SlotState {
+        <<enumeration>>
+        Free
+        Queued
+        InFlight
+    }
+    class RequestQueue {
+        <<RequestQueue.h>>
+        +kBufferLimit unsigned
+        +canAccept(unsigned inFlight) bool
+    }
+    CaptureSession *-- BufferSlot : slots_ 4개 소유
+    BufferSlot --> SlotState : state_ 보관
+    CaptureSession ..> RequestQueue : submit이 canAccept 호출

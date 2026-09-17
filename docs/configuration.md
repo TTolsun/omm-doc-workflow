@@ -28,11 +28,49 @@ Hermes에는 명시적으로 `file` 도구 집합을 선택한 뒤 일회성 프
 
 Hermes 0.21.1의 커밋 `564aef2946c436500a5e80ee117b66b789b3f99a`에서 실제 CLI를 로컬 모의 API에 연결하여, 위 프로필이 보낸 요청에 도구 목록이 없고 `reasoning_effort`가 `none`이며 세션 제목 요청이 없음을 확인했습니다. 다른 설치본은 `DOCFLOW_REAL_HERMES_CLI`에 실행 파일의 절대 경로를 지정하고 `node --test test/hermes-real.test.mjs`로 확인할 수 있습니다. 이 테스트는 실제 Hermes를 실행하지만 모델 응답은 모의 API가 반환하므로 실제 Qwen 접속이나 생성 품질 검증은 아닙니다.
 
+## 관점별 다이어그램 종류
+
+**바인딩의 각 `omm` 원본에 `diagram_type`을 지정하세요.** 생략하면 기존과 같은 `flow`입니다. 종류는 관점(perspective) 단위로 정해지며 자식 요소의 `diagram.mmd`도 같은 종류로 검사합니다.
+
+```yaml
+sources:
+  overall-architecture:
+    kind: omm
+    diagram_type: component
+    evidence: ["src/**/*.cpp", "src/**/*.h"]
+  session-structure:
+    kind: omm
+    diagram_type: class
+    evidence: ["CaptureSession.h", "BufferSlot.h"]
+  request-lifecycle:
+    kind: omm
+    diagram_type: sequence
+    evidence: ["CaptureSession.cpp", "BufferSlot.cpp"]
+  buffer-ownership:
+    kind: omm
+    diagram_type: state
+    evidence: ["BufferSlot.h", "BufferSlot.cpp"]
+```
+
+| `diagram_type` | 첫 줄 | 검사 주체 | 종류별 규칙 |
+| --- | --- | --- | --- |
+| `flow` (기본값) | `graph LR` 등 방향 선언 | OMM CLI `validate` | OMM 0.2.0의 규칙을 그대로 씁니다. 간선 라벨 누락과 노드 수는 경고입니다. |
+| `component` | `graph TD` 등 방향 선언 | OMM CLI `validate` | `flow`와 같은 규칙이며 프롬프트만 모듈·컴포넌트 중심으로 바뀝니다. |
+| `class` | `classDiagram` | [src/diagram.mjs](../src/diagram.mjs) | `class` 선언이나 관계(`<\|--`, `*--`, `o--`, `-->`, `..>`)가 하나 이상 있어야 하고, 알 수 없는 줄과 닫히지 않은 중괄호는 오류입니다. |
+| `sequence` | `sequenceDiagram` | [src/diagram.mjs](../src/diagram.mjs) | 메시지(`A->>B: 설명`)가 하나 이상 있어야 하고, `: 설명`이 없는 메시지와 알 수 없는 줄은 오류입니다. |
+| `state` | `stateDiagram-v2` | [src/diagram.mjs](../src/diagram.mjs) | 전이(`A --> B : 조건`)가 하나 이상 있어야 하고, 알 수 없는 줄과 닫히지 않은 `note`는 오류입니다. `[*]`가 아닌 전이의 라벨 누락은 경고입니다. |
+
+OMM 0.2.0의 `omm validate`는 `graph`/`flowchart` 선언을 요구하므로 UML 계열은 CLI 대신 실행기의 검사기가 같은 출력 형식(`error [규칙] line N: 메시지`)으로 검사합니다. 모든 종류에서 첫 줄이 설정한 종류와 다르면 `diagram-type` 오류로 반려하고, 따옴표 밖의 괄호 짝과 `@참조`의 존재도 확인합니다. 검사는 형식만 보며 그림이 코드와 일치하는지는 판단하지 않습니다.
+
+구조 스캔 프롬프트와 반려 안내에는 종류별 작성 규칙 한 줄이 들어갑니다. `diagram_type`을 바꾸면 그 관점의 원본 해시가 바뀌어 `원본이 갱신됨` 상태가 되고 다음 `sync`에서 새 종류로 다시 그립니다. 기본값 `flow`는 해시에 넣지 않으므로 기존 프로젝트의 검토 기록은 그대로 유효합니다. `generate`는 `diagram.mmd`의 첫 줄이 설정과 다르면 페이지를 쓰지 않고 실패합니다.
+
+페이지에는 `kind: omm`, `field: diagram` 블록으로 연결하며, 생성 결과는 종류를 그대로 담은 ` ```mermaid ` 블록입니다. 사이트 템플릿은 Mermaid 11로 네 종류를 모두 렌더링합니다. 한 관점에는 그림이 하나이므로 클래스 구조와 호출 순서를 함께 보이려면 관점을 나누고, 상세 구조는 기존처럼 자식 요소로 내려갑니다. [Camera HAL 예제](../examples/camera-hal/docs/_bindings.yaml)에 네 종류가 모두 있습니다.
+
 ## 모델 응답의 반려와 재요청
 
 로컬 소형 모델은 집필 규칙과 출력 계약을 확률적으로만 따르므로, `sync`는 모델 응답을 받은 뒤 결정적으로 검사하고 위반이 있으면 반려 사유를 프롬프트 끝에 붙여 같은 근거로 다시 요청합니다. 검사는 사본에서만 이루어지며 횟수를 다 쓰면 원본을 바꾸지 않고 실패합니다. 반려는 모델 호출 실패가 아니므로 `DOCFLOW_AGENT_ATTEMPTS`와 별개로 셉니다.
 
-구조 스캔은 응답의 요소·필드 형태를 검사하고 사본에 적용한 뒤 `omm validate`를 실행합니다. 검증에 실패하면 그 perspective의 파일을 스냅샷으로 되돌리고 검증 출력을 반려 사유로 넘깁니다. 모델이 요소를 `.omm/request-flow/diagram.mmd`처럼 파일 경로로 적으면 요소 디렉터리로 되돌려 받아들이되, 파일 이름이 `field`와 다른 필드를 가리키면(`constraint.md`에 `field: description`) 어느 쪽이 맞는지 알 수 없으므로 반려합니다. OMM CLI의 시간 초과나 실행 오류는 모델 응답 문제가 아니므로 다시 요청하지 않고 그대로 실패합니다.
+구조 스캔은 응답의 요소·필드 형태를 검사하고 사본에 적용한 뒤 관점의 `diagram_type`에 따라 `omm validate` 또는 실행기의 종류별 검사기를 실행합니다. 검증에 실패하면 그 perspective의 파일을 스냅샷으로 되돌리고 검증 출력을 반려 사유로 넘깁니다. 모델이 요소를 `.omm/request-flow/diagram.mmd`처럼 파일 경로로 적으면 요소 디렉터리로 되돌려 받아들이되, 파일 이름이 `field`와 다른 필드를 가리키면(`constraint.md`에 `field: description`) 어느 쪽이 맞는지 알 수 없으므로 반려합니다. OMM CLI의 시간 초과나 실행 오류는 모델 응답 문제가 아니므로 다시 요청하지 않고 그대로 실패합니다.
 
 반려 사유를 붙인 프롬프트가 `DOCGEN_MAX_PROMPT_CHARS`를 넘으면 위반한 줄의 인용을 뺀 규칙별 한 줄 요약으로 줄이고, 그래도 넘치면 한도에 맞게 자릅니다. 반려 때문에 입력 한도 오류로 실패하지는 않습니다.
 

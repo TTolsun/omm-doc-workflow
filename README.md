@@ -19,8 +19,10 @@ flowchart TD
     source["코드·커밋<br/>변경 파일과 메시지"]
     jira["선택: Jira<br/>문제 · 원인 · 해결"]
     confluence["선택: Confluence<br/>설계 · 결정 기록"]
-    agent["Hermes + Qwen"]
-    omm[".omm<br/>구조와 제약"]
+    agent["Hermes + Qwen<br/>구조 분석"]
+    omm[".omm Architecture Model<br/>관점별 설명 · 제약 · 다이어그램"]
+    diagram["다이어그램 검증<br/>flow · class · sequence · state"]
+    writer["Qwen 집필<br/>.omm + 코드 + 근거"]
     manuscript["원고<br/>동작과 변경 이유"]
     verify["근거·형식 검사<br/>페이지 생성"]
     review["코드 대조 리뷰와 반영"]
@@ -28,14 +30,27 @@ flowchart TD
     source --> agent
     jira --> agent
     confluence --> agent
-    agent --> omm
-    agent --> manuscript
-    omm --> verify
+    agent --> omm --> diagram --> writer --> manuscript
+    diagram --> verify
     manuscript --> verify
     verify --> review --> publish
 ```
 
 **코드 동작, 이슈의 원인·해결 내용, 설계 결정은 서로 다른 근거입니다.** Jira의 Solution에 적힌 내용만으로 구현 완료를 단정하지 않습니다. 설계 의도는 연결된 기록에서 확인한 경우에만 설명합니다.
+
+## OMM은 관점별 Architecture Model입니다
+
+**OMM은 AI가 분석한 코드 구조를 관점(perspective)별로 저장하고, 각 관점에 맞는 Architecture·UML 다이어그램으로 구조화하고 검증하는 Architecture Model입니다.** 단순한 그림 저장소가 아니라 원고 집필의 입력이며, 원고의 검토 상태는 이 모델의 해시에 묶여 있습니다.
+
+| 관점 예 | `diagram_type` | Mermaid 첫 줄 | 검사 주체 |
+| --- | --- | --- | --- |
+| `overall-architecture` | `component` | `graph TD` | OMM CLI `validate` |
+| `request-flow` | `flow` (기본값) | `graph LR` | OMM CLI `validate` |
+| `session-structure` | `class` | `classDiagram` | 실행기의 종류별 검사기 |
+| `request-lifecycle` | `sequence` | `sequenceDiagram` | 실행기의 종류별 검사기 |
+| `buffer-ownership` | `state` | `stateDiagram-v2` | 실행기의 종류별 검사기 |
+
+바인딩의 `sources.<관점>.diagram_type`이 종류를 정합니다. 구조 스캔 프롬프트는 종류별 작성 규칙을 받고, 응답은 종류별 규칙으로 검사한 뒤 통과할 때까지 반려 사유를 붙여 다시 요청합니다. 상위 구조에서 상세 구조로 내려가는 자식 요소 구조는 그대로 유지하며, 페이지에는 `field: diagram` 블록으로 원하는 그림을 연결합니다. [Camera HAL 예제](examples/camera-hal/)에 네 종류가 모두 있으며 [설정 안내](docs/configuration.md)에 규칙을 정리했습니다.
 
 ## 필요한 기능만 선택합니다
 
@@ -49,6 +64,7 @@ flowchart TD
 | 첨부 그림 | 출처 링크 수집 또는 제외 | `jira.attachments` |
 | 설계 근거 | Jira에 연결된 Confluence 문서를 추가 수집 | `confluence.enabled` |
 | 문서 목차 | 프로젝트가 지정한 페이지·구조·원고 블록 | 바인딩 파일 |
+| 다이어그램 종류 | 관점별 flow, component, class, sequence, state | `sources.<관점>.diagram_type` |
 | 시각적 형식 | reading, Architecture Intelligence, Slack, plain 또는 프로젝트 CSS | `design.preset` |
 | 사실 추출 | 기본값 없이 시작하거나 프로젝트용 추출기 연결 | `factsAdapter` |
 | 실행 시점 | 수동 실행 또는 기존 미러링 작업의 성공 후 호출 | 외부 작업 스케줄러·CI |
@@ -140,7 +156,7 @@ node bin/docflow.mjs sync --project /work/camera-hal-docs --recover
 
 [실행·복구 검증 기록](docs/validation.md)에 실제 Qwen 실행과 모의 연동 검사를 구분해 정리했습니다.
 
-로컬 Qwen 3.5 4B로 작은 테스트 코드의 변경이 OMM 부모·자식 설명과 생성 페이지에 반영되는 것을 확인했습니다. 시간 초과, 잘못된 응답, OMM 오류, 원고 실패, 파일 반영 실패와 복구도 테스트합니다. 현재 앱의 기존 문서 검사와 공용 실행기 검사는 각각 유지합니다.
+로컬 Qwen 3.5 4B로 작은 테스트 코드의 변경이 OMM 부모·자식 설명과 생성 페이지에 반영되는 것을 확인했습니다. 시간 초과, 잘못된 응답, OMM 오류, 원고 실패, 파일 반영 실패와 복구도 테스트합니다. class·sequence·state 다이어그램은 예제와 모의 모델 응답으로 검사와 렌더링을 확인했으며, 실제 Qwen이 UML 종류를 얼마나 안정적으로 그리는지는 아직 측정하지 않았습니다. 현재 앱의 기존 문서 검사와 공용 실행기 검사는 각각 유지합니다.
 
 사내 Hermes 설치본, 실제 Jira 필드, Confluence 권한, 미러링 완료 신호는 사내 셋업에서 확인해야 합니다. Jira의 첨부 그림은 현재 출처 링크를 수집하며, 그림의 내용을 읽었다고 표시하지 않습니다. 입력이 모델 한도를 넘으면 잘라 보내지 않고 실패합니다. 큰 HAL 저장소는 모듈 단위로 근거 범위를 나누어 구성해야 합니다.
 

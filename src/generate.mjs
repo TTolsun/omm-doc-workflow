@@ -20,6 +20,7 @@ import { pathToFileURL } from "node:url";
 import { CONFIG } from "./config.mjs";
 import { repoPath } from "./lib.mjs";
 import { externalReferences } from './model.mjs';
+import { diagramTypeOf, checkDiagram } from './diagram.mjs';
 import { readBindings, readState, readOmmField, ommChildren, ommExists, fail } from "./lib.mjs";
 import {
   CONFIDENCE_LABEL,
@@ -144,6 +145,12 @@ function renderStatus(page, def) {
 function renderOmmField(block) {
   const text = readOmmField(block.source, block.field);
   if (text === null) throw new Error(`.omm/${block.source}/${block.field} 가 비어 있거나 없습니다.`);
+  if (block.field === "diagram") {
+    // 손으로 고친 그림이 바인딩의 diagram_type 과 다르면 페이지에 넣지 않습니다. 형식만 보며 내용은 판단하지 않습니다.
+    const type = diagramTypeOf(bindings.sources[block.source]);
+    const problem = checkDiagram(text, type).find((x) => x.level === "error");
+    if (problem) throw new Error(`.omm/${block.source}/diagram (diagram_type: ${type}): ${problem.message}`);
+  }
   const body = block.field === "diagram" ? ["```mermaid", text, "```"].join("\n") : text;
   return [
     body,

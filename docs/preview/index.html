@@ -40,7 +40,22 @@
 </thead>
 <tbody>
 <tr>
+<td>구조 원본 <code>buffer-ownership</code></td>
+<td>검증 정보 없음</td>
+<td>—</td>
+</tr>
+<tr>
 <td>구조 원본 <code>request-flow</code></td>
+<td>검증 정보 없음</td>
+<td>—</td>
+</tr>
+<tr>
+<td>구조 원본 <code>request-lifecycle</code></td>
+<td>검증 정보 없음</td>
+<td>—</td>
+</tr>
+<tr>
+<td>구조 원본 <code>session-structure</code></td>
 <td>검증 정보 없음</td>
 <td>—</td>
 </tr>
@@ -77,6 +92,109 @@
 </ul>
 </details>
 <!-- omm:end id=overview -->
+<h2>클래스 구조</h2>
+<p>CaptureSession이 BufferSlot을 소유하고 canAccept를 호출하는 관계입니다. <code>session-structure</code> 관점은 <code>diagram_type: class</code>로 설정되어 있습니다.</p>
+<!-- omm:begin id=class-diagram -->
+<pre><code class="language-mermaid">classDiagram
+    class CaptureSession {
+        -BufferSlot slots_[kBufferLimit]
+        -unsigned inFlight_
+        +submit() bool
+        +complete(unsigned slot) void
+        +inFlight() unsigned
+    }
+    class BufferSlot {
+        -SlotState state_
+        +state() SlotState
+        +reserve() bool
+        +submit() bool
+        +release() bool
+    }
+    class SlotState {
+        &lt;&lt;enumeration&gt;&gt;
+        Free
+        Queued
+        InFlight
+    }
+    class RequestQueue {
+        &lt;&lt;RequestQueue.h&gt;&gt;
+        +kBufferLimit unsigned
+        +canAccept(unsigned inFlight) bool
+    }
+    CaptureSession *-- BufferSlot : slots_ 4개 소유
+    BufferSlot --&gt; SlotState : state_ 보관
+    CaptureSession ..&gt; RequestQueue : submit이 canAccept 호출
+</code></pre>
+<details class="doc-evidence" markdown="1">
+<summary>근거와 검토 정보</summary>
+<ul>
+<li>근거: <code>.omm/session-structure/diagram</code></li>
+<li>근거 수준: 코드 확인</li>
+</ul>
+</details>
+<!-- omm:end id=class-diagram -->
+<h2>요청 처리 순서</h2>
+<p>submit 한 번이 canAccept 확인, 슬롯 예약, 제출 순서로 진행됩니다. <code>request-lifecycle</code> 관점은 <code>diagram_type: sequence</code>로 설정되어 있습니다.</p>
+<!-- omm:begin id=sequence-diagram -->
+<pre><code class="language-mermaid">sequenceDiagram
+    participant Caller as 호출자
+    participant Session as CaptureSession
+    participant Queue as RequestQueue
+    participant Slot as BufferSlot
+    Caller-&gt;&gt;Session: submit()
+    Session-&gt;&gt;Queue: canAccept(inFlight_)
+    alt inFlight_ &gt;= kBufferLimit
+        Queue--&gt;&gt;Session: false
+        Session--&gt;&gt;Caller: false
+    else inFlight_ &lt; kBufferLimit
+        Queue--&gt;&gt;Session: true
+        Session-&gt;&gt;Slot: reserve()
+        Slot--&gt;&gt;Session: true (Free 슬롯)
+        Session-&gt;&gt;Slot: submit()
+        Session--&gt;&gt;Caller: true (inFlight_ + 1)
+    end
+    Caller-&gt;&gt;Session: complete(slot)
+    Session-&gt;&gt;Slot: release()
+    Slot--&gt;&gt;Session: true이면 inFlight_ - 1
+</code></pre>
+<details class="doc-evidence" markdown="1">
+<summary>근거와 검토 정보</summary>
+<ul>
+<li>근거: <code>.omm/request-lifecycle/diagram</code></li>
+<li>근거 수준: 코드 확인</li>
+</ul>
+</details>
+<!-- omm:end id=sequence-diagram -->
+<h2>버퍼 슬롯 상태</h2>
+<p>BufferSlot 하나가 거치는 상태와 전이 함수입니다. <code>buffer-ownership</code> 관점은 <code>diagram_type: state</code>로 설정되어 있습니다.</p>
+<!-- omm:begin id=state-diagram -->
+<pre><code class="language-mermaid">stateDiagram-v2
+    [*] --&gt; Free
+    Free --&gt; Queued : reserve()
+    Queued --&gt; InFlight : submit()
+    InFlight --&gt; Free : release()
+    note right of Free
+        다른 상태에서 호출한 전이 함수는 상태를 바꾸지 않고 false를 반환합니다.
+    end note
+</code></pre>
+<details class="doc-evidence" markdown="1">
+<summary>근거와 검토 정보</summary>
+<ul>
+<li>근거: <code>.omm/buffer-ownership/diagram</code></li>
+<li>근거 수준: 코드 확인</li>
+</ul>
+</details>
+<!-- omm:end id=state-diagram -->
+<!-- omm:begin id=state-description -->
+<p>BufferSlot.cpp의 상태는 Free, Queued, InFlight 세 가지입니다. reserve는 Free에서만, submit은 Queued에서만, release는 InFlight에서만 상태를 바꾸고 true를 반환하며, 다른 상태에서는 상태를 유지하고 false를 반환합니다.</p>
+<details class="doc-evidence" markdown="1">
+<summary>근거와 검토 정보</summary>
+<ul>
+<li>근거: <code>.omm/buffer-ownership/description</code></li>
+<li>근거 수준: 코드 확인</li>
+</ul>
+</details>
+<!-- omm:end id=state-description -->
 <p>다음으로 처리 중인 버퍼 수가 경곗값과 같을 때의 결과를 확인하세요.</p>
 </main>
   <dialog class="diagram-dialog" aria-labelledby="diagram-title">

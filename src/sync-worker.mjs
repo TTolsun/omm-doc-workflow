@@ -10,6 +10,7 @@ import { runAgent } from './agent.mjs';
 import { positiveInt } from './qwen.mjs';
 import { lintManuscript, describeFindings, attachParticles, unwrapManuscript } from './manuscript-lint.mjs';
 import { CONFIG, sourcePath, SOURCE_ROOT, STATE_REL } from './config.mjs';
+import { DIAGRAM_TYPES, diagramRule, checkDiagram, formatDiagramIssues } from './diagram.mjs';
 
 const documentRoots = ['.omm', readBindings().site.root, STATE_REL, CONFIG.styleDir].filter(Boolean);
 const snapshot = root => snapshotFiles(root, null, root === REPO_ROOT ? documentRoots : []);
@@ -31,6 +32,21 @@ const omm = (...extra) => {
     const error = new Error(`omm ${extra[0]} 실패: ${r.stderr || r.stdout || r.error?.message}`);
     // 실행 자체가 안 된 경우(시간 초과, 스폰 오류)는 모델 응답 품질과 무관하므로 반려 재요청 대상이 아닙니다.
     error.modelOutput = !r.error && r.status !== null;
+    throw error;
+  }
+};
+// 요소의 diagram 을 관점의 diagram_type 에 맞게 검증합니다. graph 계열은 OMM CLI 의 규칙을 그대로 쓰고,
+// UML 계열은 OMM 0.2.0 이 graph 선언을 요구하므로 diagram.mjs 의 종류별 규칙으로 검사합니다.
+// 두 경로 모두 검증 오류는 modelOutput 으로 표시해 반려 재요청 대상이 되게 합니다.
+const validateElement = (element, type) => {
+  if (DIAGRAM_TYPES[type].omm) return omm('validate', element);
+  const file = path.join(REPO_ROOT, '.omm', ...element.split('/'), 'diagram.mmd');
+  if (!fs.existsSync(file)) return;
+  const perspectives = fs.readdirSync(path.join(REPO_ROOT, '.omm'), { withFileTypes: true }).filter(d => d.isDirectory() && !d.name.startsWith('.')).map(d => d.name);
+  const issues = checkDiagram(fs.readFileSync(file, 'utf8'), type, { element, perspectives });
+  if (issues.some(x => x.level === 'error')) {
+    const error = new Error(`diagram 검증 실패: ${formatDiagramIssues(element, issues)}`);
+    error.modelOutput = true;
     throw error;
   }
 };
@@ -128,7 +144,7 @@ try {
   console.log(`  재스캔 대상 perspective: ${scans.map(k => k.source).join(', ') || '(없음)'}`);
   console.log('2/4 Qwen 구조 갱신');
   if (!args.has('--write-only')) for (const k of scans) {
-    console.log(`  - ${k.source}`);
+    console.log(`  - ${k.source} (diagram_type: ${k.diagramType})`);
     if (dryRun) continue;
     const before = snapshot(REPO_ROOT);
     const prefix = `.omm/${k.source}/`;
@@ -141,6 +157,7 @@ try {
 부모 요소와 자식 요소를 각각 확인하세요. 같은 값이나 동작이 여러 필드에 반복되어 있으면 해당 필드를 모두 갱신해야 합니다.
 기존 문서는 과거 코드 기준이므로 최신 코드와 충돌하면 반드시 최신 코드를 따르세요.
 코드로 확인한 사실은 description에, 확인할 수 없는 내용은 concern에 한국어 완성 문장으로 씁니다.
+${diagramRule(k.diagramType)} 기존 diagram 이 이 종류가 아니면 코드를 근거로 새로 그립니다. 코드에 없는 요소나 관계는 넣지 않습니다.
 설계 의도와 기기 검증 결과를 추정하지 마세요. 변경 없는 필드는 반환하지 마세요.
 응답은 {"updates":[{"element":"요소 경로","field":"필드","text":"필드 전체 내용"}]} JSON입니다.
 허용 요소: ${JSON.stringify(elements)}\n허용 필드: ${OMM_FIELDS.join(', ')}
@@ -163,7 +180,7 @@ try {
         // 범위 위반은 모델 응답 품질이 아니라 실행기 안전 조건이므로 다시 요청하지 않습니다.
         const outside = changedFiles(before, snapshot(REPO_ROOT)).filter(p => !p.startsWith(prefix));
         if (outside.length) throw new Error(`구조 갱신 범위 위반: ${outside.join(', ')}`);
-        try { for (const element of elements) omm('validate', element); done = true; }
+        try { for (const element of elements) validateElement(element, k.diagramType); done = true; }
         catch (error) {
           // CLI 시간 초과나 스폰 오류는 다시 요청해도 같으므로 그대로 실패시킵니다. 검증 오류만 반려 사유가 됩니다.
           if (!error.modelOutput) throw error;
@@ -174,7 +191,7 @@ try {
         console.log(`  구조 반려 ${attempt}/${attempts}: ${firstProblem(reason)}`);
         const guide = `\n\n## 이전 응답 반려 사유\n이전 응답은 다음 이유로 반려되었습니다. 같은 근거로 다시 응답하되 아래 문제를 고칩니다.
 - element 는 허용 요소 ${JSON.stringify(elements)} 중 하나를 그대로 씁니다. 파일 이름이나 .omm/ 접두사를 붙이지 않습니다.
-- diagram 필드는 "graph LR" 같은 방향 선언으로 시작하는 Mermaid 전체 내용이어야 합니다. 바뀐 줄만 보내지 않습니다.
+- ${diagramRule(k.diagramType)} 바뀐 줄만 보내지 않습니다.
 - text 는 해당 필드의 전체 내용입니다.
 반려 이유:\n`;
         rejection = fitRejection(prompt, guide + reason, guide + firstProblem(reason));
