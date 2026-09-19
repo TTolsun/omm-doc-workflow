@@ -23,9 +23,13 @@ test('structured writer preserves human evidence metadata and requires every req
   assert.deepEqual(meta.decisions, ['D-existing']); assert.deepEqual(meta.verifications, []);
   assert.match(body, /첫 답변입니다\.\n\n두 번째 답변입니다\./);
   for (const sections of [{ answer_1: 'only one' }, { ...response.sections, extra: 'unexpected' },
-    { ...response.sections, answer_2: 'x'.repeat(2501) }, { ...response.sections, answer_2: '---\nconfidence: device' }]) {
+    { ...response.sections, answer_2: 'x'.repeat(6001) }, { ...response.sections, answer_2: '---\nconfidence: device' }]) {
     assert.throws(() => renderManuscript(key, { ...response, sections }), /질문별 답변/);
   }
+  // 상한(기본 6000자)에 정확히 닿은 답변은 스키마가 끊은 것이므로 잘림으로 구분해 반려합니다. 상한 아래는 그대로 받아들입니다.
+  assert.throws(() => renderManuscript(key, { ...response, sections: { ...response.sections, answer_2: 'x'.repeat(6000) } }), /6000자 상한에 닿아 잘렸습니다\(answer_2\)/);
+  assert.doesNotThrow(() => renderManuscript(key, { ...response, sections: { ...response.sections, answer_2: 'x'.repeat(5999) } }));
+  assert.equal(manuscriptSchema(key, [probeFile]).properties.sections.properties.answer_1.maxLength, 6000);
 });
 
 async function server(t, handler) {

@@ -178,3 +178,21 @@ test('writer rejection stops after the configured attempts without writing', asy
   assert.match(r.out, /3회 시도 후에도 집필 규칙을 통과하지 못했습니다: 종결어미/);
   assert.deepEqual(changedFiles(before, snapshot(f.root)), [], r.out);
 });
+
+test('an answer that hits the length cap is rejected as truncated and the retry may be shorter', async t => {
+  const f = fixture(t); const prompts = [];
+  f.put('docs/guide/_bindings.yaml', fs.readFileSync(path.join(f.root, 'docs/guide/_bindings.yaml'), 'utf8').replace('brief:\n', 'brief:\n          must_link: [Probe.OBSERVE_MS]\n'));
+  const url = await server(t, (data, res) => {
+    if (isScan(data)) return reply(res, scanFor(data));
+    prompts.push(data.messages.at(-1).content);
+    assert.equal(data.format.properties.sections.properties.answer_1.maxLength, 300);
+    // 첫 답변은 상한을 꽉 채운 채 필수 심볼 없이 끝나고(스키마가 끊은 모양), 두 번째는 짧고 심볼을 포함합니다.
+    reply(res, writer(prompts.length === 1 ? '관측 시간은 12000ms입니다. '.repeat(40).slice(0, 300) : good));
+  });
+  const r = await runSync(f.root, { DOCGEN_OLLAMA_URL: url, DOCGEN_MAX_ANSWER_CHARS: '300', ...attempts }); assert.equal(r.code, 0, r.out);
+  assert.equal(prompts.length, 2);
+  assert.match(prompts[0], /필수 심볼 `Probe\.OBSERVE_MS`은\(는\) 본문에 코드에 적힌 그대로/);
+  assert.match(r.out, /원고 반려 1\/3: 응답 형식/);
+  assert.match(prompts[1], /300자 상한에 닿아 잘렸습니다\(answer_1\)/);
+  assertContent(f);
+});

@@ -6,12 +6,15 @@ import { positiveInt } from './qwen.mjs';
 
 const codeHeader = '\n다음 원본 코드만 근거로 사용하세요. 파일 도구는 없습니다.\n';
 
+// 답변 하나의 문자 상한. JSON 스키마의 maxLength 로 강제되므로 상한에 닿은 답변은 모델이 끝맺지 못하고 잘린 것입니다.
+export const answerLimit = () => positiveInt('DOCGEN_MAX_ANSWER_CHARS', 6000);
+
 const answerKeys = key => Array.from({ length: Math.max(1, key.block.brief?.answers?.length ?? 0) }, (_, i) => `answer_${i + 1}`);
 
 export function manuscriptSchema(key, files) {
   const names = answerKeys(key);
   return { type: 'object', properties: {
-    sections: { type: 'object', properties: Object.fromEntries(names.map(name => [name, { type: 'string', minLength: 1, maxLength: 2500 }])),
+    sections: { type: 'object', properties: Object.fromEntries(names.map(name => [name, { type: 'string', minLength: 1, maxLength: answerLimit() }])),
       required: names, additionalProperties: false },
     sources: { type: 'array', minItems: key.block.confidence === 'code' ? 1 : 0,
       maxItems: files.length, uniqueItems: true, items: { type: 'string', enum: files } },
@@ -20,11 +23,15 @@ export function manuscriptSchema(key, files) {
 
 export function renderManuscript(key, result, existingMeta = {}) {
   const names = answerKeys(key);
+  const limit = answerLimit();
   if (!result?.sections || typeof result.sections !== 'object' || Array.isArray(result.sections) ||
       Object.keys(result.sections).length !== names.length || names.some(name => typeof result.sections[name] !== 'string' ||
-        !result.sections[name].trim() || result.sections[name].length > 2500 || /^---(?:\r?\n|$)/.test(result.sections[name]))) {
+        !result.sections[name].trim() || result.sections[name].length > limit || /^---(?:\r?\n|$)/.test(result.sections[name]))) {
     throw new Error('Qwen 원고의 질문별 답변이 비어 있거나 형식·길이 계약이 일치하지 않습니다.');
   }
+  // 상한에 닿은 답변은 스키마가 중간에서 끊은 것이므로 뒤쪽 내용(필수 심볼 등)이 빠져 있습니다. 더 짧게 다시 쓰게 합니다.
+  const truncated = names.filter(name => result.sections[name].length >= limit);
+  if (truncated.length) throw new Error(`답변이 ${limit}자 상한에 닿아 잘렸습니다(${truncated.join(', ')}). 각 답변을 1~3개 문단으로 줄이고 필수 심볼을 앞쪽 문단에서 먼저 언급하세요.`);
   if (!Array.isArray(result.sources) || result.sources.some(file => typeof file !== 'string')) throw new Error('Qwen 원고의 sources 계약이 일치하지 않습니다.');
   // Only source selection and prose come from the model. Review claims remain
   // exactly those already supplied by the human-authored manuscript metadata.
@@ -51,8 +58,9 @@ export function manuscriptPlan(key, brief, files) {
   const questions = key.block.brief?.answers?.length ? key.block.brief.answers : ['기존 원고를 코드 근거에 맞게 갱신하세요.'];
   const suffix = '\n## 이번 호출의 JSON 출력 계약\n위 brief의 출력 형식은 최종 파일 모양입니다. 이번 호출은 front matter를 작성하지 않습니다. ' +
     '프로그램이 JSON 응답을 조립합니다. 응답은 {"sections":{"answer_1":"첫 질문의 Markdown 답변",...},"sources":["정확한 파일 경로"]}입니다.\n' +
-    '각 답변은 1~3개 문단, 최대 2500자입니다. 질문에 한 번만 답하고 끝내세요. 같은 설명을 상세 절이나 요약 절로 반복하지 마세요. ' +
+    `각 답변은 1~3개 문단이며 ${answerLimit()}자를 넘으면 잘립니다. 질문에 한 번만 답하고 끝내세요. 같은 설명을 상세 절이나 요약 절로 반복하지 마세요. ` +
     '기존 조건과 예외는 유지하되 불필요하게 확장하지 마세요.\n' +
+    (key.block.brief?.must_link?.length ? `필수 심볼 ${key.block.brief.must_link.map(x => '`' + x + '`').join(', ')}은(는) 본문에 코드에 적힌 그대로 써야 합니다. 쪼개거나 바꿔 쓰면 반려됩니다.\n` : '') +
     questions.map((question, i) => `answer_${i + 1}: ${question}`).join('\n') +
     '\nsources는 아래 허용 경로만 사용하세요. #심볼이나 Markdown 링크를 붙이지 말고 정확한 경로를 사용하세요. ' +
     '구조 설명에 언급된 다른 파일은 코드 인용 대상이 아닙니다.\n허용 sources: ' + JSON.stringify(files);
