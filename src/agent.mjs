@@ -33,7 +33,7 @@ function balancedObject(text, start) {
   return '';
 }
 
-export async function runAgent(prompt, schema) {
+export async function runAgent(prompt, schema, options = {}) {
   checkPrompt(prompt);
   const settings = CONFIG.agent ?? { kind: 'hermes', model: 'qwen3.5:4b' };
   if (settings.kind === 'ollama') {
@@ -41,7 +41,7 @@ export async function runAgent(prompt, schema) {
     if (process.env.DOCGEN_QWEN_MODEL && process.env.DOCGEN_QWEN_MODEL !== model) throw new Error('DOCGEN_QWEN_MODEL이 agent.model과 일치하지 않습니다.');
     process.env.DOCGEN_QWEN_MODEL = model;
     process.env.DOCGEN_OLLAMA_URL ??= settings.baseUrl ?? 'http://127.0.0.1:11434';
-    return qwen(prompt, schema);
+    return qwen(prompt, schema, options);
   }
   if (settings.kind !== 'hermes') throw new Error(`Unknown agent: ${settings.kind}`);
   if (typeof settings.model !== 'string' || !settings.model.trim()) throw new Error('agent.model을 지정하세요.');

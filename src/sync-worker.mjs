@@ -116,10 +116,10 @@ const checkManuscript = (markdown, key, sourceFiles) => {
   return findings.length ? findings : lintManuscript(body);
 };
 // 에이전트는 수정안만 반환합니다. 문서 사본이나 코드 사본을 직접 고치면 실패로 처리합니다.
-async function qwen(prompt, schema) {
+async function qwen(prompt, schema, options = {}) {
   const before = snapshot(REPO_ROOT);
   const codeBefore = snapshot(SOURCE_ROOT);
-  const result = await runAgent(prompt, schema);
+  const result = await runAgent(prompt, schema, options);
   if (changedFiles(before, snapshot(REPO_ROOT)).length || changedFiles(codeBefore, snapshot(SOURCE_ROOT)).length) throw new Error('에이전트가 수정안 반환 대신 파일을 수정했습니다.');
   return result;
 }
@@ -173,8 +173,14 @@ try {
       const attempts = positiveInt('DOCFLOW_SCAN_ATTEMPTS', 3);
       let done = false, rejection = '', reason = '';
       for (let attempt = 1; attempt <= attempts && !done; attempt++) {
-        const result = await qwen(input.prompt + rejection, updateSchema);
-        reason = checkUpdates(result, [element.path]);
+        let result;
+        try { result = await qwen(input.prompt + rejection, updateSchema); }
+        catch (error) {
+          // 출력 토큰 한도에 닿은 응답은 모델이 너무 길게 쓴 것이므로 반려 사유로 돌려 다시 요청합니다.
+          if (!error.doneReason) throw error;
+          result = null; reason = `${error.message} 변경 없는 필드는 보내지 말고 각 필드의 내용을 간결하게 쓰세요.`;
+        }
+        reason = result ? checkUpdates(result, [element.path]) : reason;
         if (!reason) {
           for (const update of result.updates) {
             if (readOmmField(update.element, update.field) === update.text.replace(/\r\n/g, '\n').trim()) continue;
@@ -222,9 +228,13 @@ try {
     const attempts = positiveInt('DOCFLOW_WRITER_ATTEMPTS', 3);
     let accepted, rejection = '', summary = '';
     for (let attempt = 1; attempt <= attempts && accepted === undefined; attempt++) {
-      const result = await qwen(prompt + rejection, manuscriptSchema(k, sourceFiles));
-      let findings;
-      try {
+      let result, findings;
+      try { result = await qwen(prompt + rejection, manuscriptSchema(k, sourceFiles)); }
+      catch (error) {
+        if (!error.doneReason) throw error;
+        result = null; findings = [{ rule: '응답 형식', detail: `${error.message} 답변이 출력 토큰 한도에 닿아 끊겼습니다. 각 답변을 1~3개 문단으로 줄이세요.` }];
+      }
+      if (result) try {
         // 식별자 뒤 조사 띄어쓰기는 가장 흔한 위반이고 공백 한 칸 제거로 끝나므로 재요청 대신 정리합니다. 정리 횟수는 로그로 남깁니다.
         const { text: markdown, count } = attachParticles(renderManuscript(k, result, existingMeta));
         if (count) console.log(`    원고 정리: 조사 띄어쓰기 ${count}곳`);
