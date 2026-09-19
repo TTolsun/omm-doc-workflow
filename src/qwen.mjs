@@ -32,7 +32,8 @@ function timerMs(name, fallback) {
   return value;
 }
 
-export async function qwen(prompt, schema) {
+// options.numPredict 는 이 호출만의 출력 토큰 상한입니다. 요약처럼 짧아야 하는 호출이 폭주하지 않게 합니다.
+export async function qwen(prompt, schema, options = {}) {
   const endpoint = new URL(process.env.DOCGEN_OLLAMA_URL ?? 'http://127.0.0.1:11434');
   if (endpoint.protocol !== 'http:' || !['127.0.0.1', 'localhost', '[::1]'].includes(endpoint.hostname) ||
       endpoint.username || endpoint.password || endpoint.pathname !== '/' || endpoint.search || endpoint.hash) {
@@ -44,7 +45,7 @@ export async function qwen(prompt, schema) {
   const timeoutMs = timerMs('DOCGEN_LLM_TIMEOUT_MS', 1800000);
   const idleMs = timerMs('DOCGEN_LLM_IDLE_MS', 120000);
   const context = positiveInt('DOCGEN_QWEN_CONTEXT', 32768);
-  const numPredict = positiveInt('DOCGEN_QWEN_NUM_PREDICT', 8192);
+  const numPredict = Math.min(positiveInt('DOCGEN_QWEN_NUM_PREDICT', 8192), options.numPredict ?? Infinity);
   const start = Date.now();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(new Error(`Qwen 전체 시간 제한 초과 (${timeoutMs}ms).`)), timeoutMs);
@@ -88,7 +89,10 @@ export async function qwen(prompt, schema) {
     }
     if (!final) readLine(pending + decoder.decode());
     if (!final || final.done_reason !== 'stop' || !content.trim()) {
-      throw new Error(`Qwen 응답이 완성되지 않았습니다 (${final?.done_reason ?? 'empty/error'}).`);
+      const error = new Error(`Qwen 응답이 완성되지 않았습니다 (${final?.done_reason ?? 'empty/error'}).`);
+      // 출력 토큰 한도에 닿은 것은 모델이 너무 길게 쓴 것이므로 호출자가 더 짧게 다시 요청할 수 있게 표시합니다.
+      if (final?.done_reason === 'length') error.doneReason = 'length';
+      throw error;
     }
     const result = JSON.parse(content);
     console.log(`  Qwen ${model}: ${((Date.now() - start) / 1000).toFixed(1)}초, 출력 ${final.eval_count ?? '?'}토큰, done_reason: ${final.done_reason}`);

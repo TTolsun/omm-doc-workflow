@@ -1,5 +1,11 @@
 # 실행과 복구 검증 기록
 
+## 0.5.2 요약 호출의 출력 폭주
+
+0.5.1 실측(2026-09-19, self-hosted Windows runner, `qwen3.5:4b`): 게임과 다른 Ollama 클라이언트가 없는 상태에서 요소 54개 스캔 5.8분·반려 0회, 원고 `overview`와 `module-roles` 통과(0.5.1의 필수 심볼 안내가 효과가 있었습니다), `runtime-flow` 근거 요약 6/8에서 `done_reason: length`(8,192토큰)로 실패. 그 앞 실행에서는 Skyrim과 FaceRim 런처가 같은 모델을 16,384 컨텍스트로 호출해 20분 동안 모델이 30번 재로드되었고 `유휴 시간 제한 초과 (120000ms)`로 실패했습니다. 이는 엔진 문제가 아니라 같은 Ollama를 나눠 쓰는 환경 문제입니다.
+
+0.5.2 조치 후 모의 서버 검사 131개 중 125개 통과. 실제 Qwen 재실행은 hal-camera가 0.5.2로 올린 뒤 기록합니다.
+
 ## 0.5.1 답변 상한 잘림 반려
 
 hal-camera에서 0.5.0으로 `docs-sync`를 `force=true`로 실행한 실측 기록입니다. 2026-09-19, self-hosted Windows runner, Ollama `qwen3.5:4b`, 컨텍스트 49,152.

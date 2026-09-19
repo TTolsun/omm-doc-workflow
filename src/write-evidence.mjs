@@ -120,7 +120,12 @@ export async function manuscriptPrompt(plan, invoke, dryRun = false) {
     const schema = { type: 'object', properties: {
       summary: { type: 'string', minLength: 1, maxLength: plan.maxSummary },
     }, required: ['summary'], additionalProperties: false };
-    let result = await invoke(batch.prompt, schema);
+    // 요약은 짧아야 하므로 출력 토큰도 요약 상한 근처로 묶습니다. 한도에 닿아 끊긴 응답은 길이 초과와 같은 재시도 대상입니다.
+    const invokeBounded = async prompt => {
+      try { return await invoke(prompt, schema, { numPredict: plan.maxSummary + 64 }); }
+      catch (error) { if (!error.doneReason) throw error; return { summary: 'x'.repeat(plan.maxSummary + 1), truncated: true }; }
+    };
+    let result = await invokeBounded(batch.prompt);
     if (typeof result?.summary === 'string' && result.summary.trim() && result.summary.length > plan.maxSummary) {
       // Retry once from the original evidence, never from an oversized answer.
       const prompt = batch.prompt + '\n## 길이 초과 재시도\n' +
@@ -128,7 +133,7 @@ export async function manuscriptPrompt(plan, invoke, dryRun = false) {
         '제목 없이 최대 네 문장으로 핵심 동작·조건·예외와 파일 경로#심볼을 남기세요. 위 원본 코드만 근거로 사용하세요.\n';
       if (prompt.length > plan.limit) throw new Error(`근거 ${i + 1}: 재시도 입력이 한도 ${plan.limit}자를 넘습니다.`);
       console.log(`    근거 ${i + 1} 길이 초과 재시도 1/1: 입력 ${prompt.length}자`);
-      result = await invoke(prompt, schema);
+      result = await invokeBounded(prompt);
     }
     if (typeof result?.summary !== 'string' || !result.summary.trim() || result.summary.length > plan.maxSummary) {
       throw new Error(`근거 ${i + 1}: 요약이 비어 있거나 ${plan.maxSummary}자 한도를 넘었습니다.`);

@@ -196,3 +196,45 @@ test('an answer that hits the length cap is rejected as truncated and the retry 
   assert.match(prompts[1], /300자 상한에 닿아 잘렸습니다\(answer_1\)/);
   assertContent(f);
 });
+
+// Ollama 가 출력 토큰 한도(num_predict)에 닿으면 done_reason 이 length 입니다. 스트림 형태는 같고 마지막 패킷만 다릅니다.
+const replyLength = (res, content) => {
+  res.setHeader('Content-Type', 'application/x-ndjson');
+  res.write(packet({ done: false, message: { content: JSON.stringify(content).slice(0, -2) } }));
+  res.end(packet({ done: true, done_reason: 'length', eval_count: 8192, message: { content: '' } }));
+};
+
+test('a length stop in an evidence summary is retried once with the shorter instruction and a bounded num_predict', async t => {
+  const f = fixture(t); f.put(probeFile, '/*' + 'x'.repeat(70000) + '*/');
+  const calls = [];
+  const url = await server(t, (data, res) => {
+    if (isScan(data)) return reply(res, scanFor(data));
+    if (data.format.properties.summary) {
+      calls.push({ predict: data.options.num_predict, retry: /길이 초과 재시도/.test(data.messages.at(-1).content) });
+      // 첫 조각의 첫 응답만 한도에 닿아 끊기고, 재시도와 나머지 조각은 정상입니다.
+      if (calls.length === 1) return replyLength(res, { summary: 'Probe의 코드 근거입니다. '.repeat(50) });
+      return reply(res, { summary: 'Probe의 코드 근거입니다.' });
+    }
+    reply(res, writer(good));
+  });
+  const r = await runSync(f.root, { DOCGEN_OLLAMA_URL: url }, ['--write-only']); assert.equal(r.code, 0, r.out);
+  assert.equal(calls.length, 3);
+  assert.deepEqual(calls.map(c => c.retry), [false, true, false]);
+  assert.ok(calls.every(c => c.predict > 0 && c.predict < 8192), JSON.stringify(calls));
+  assert.match(r.out, /근거 1 길이 초과 재시도 1\/1/);
+  assertContent(f);
+});
+
+test('a length stop in the writer and in a scan becomes a rejection instead of a failure', async t => {
+  const f = fixture(t); let scans = 0, writes = 0;
+  const url = await server(t, (data, res) => {
+    if (isScan(data)) { scans++; return scans === 1 ? replyLength(res, scanFor(data)) : reply(res, scanFor(data)); }
+    writes++;
+    return writes === 1 ? replyLength(res, writer(good)) : reply(res, writer(good));
+  });
+  const r = await runSync(f.root, { DOCGEN_OLLAMA_URL: url, ...attempts }); assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /구조 반려 1\/3: Qwen 응답이 완성되지 않았습니다 \(length\)/);
+  assert.match(r.out, /원고 반려 1\/3: 응답 형식/);
+  assert.equal(writes, 2);
+  assertContent(f);
+});
