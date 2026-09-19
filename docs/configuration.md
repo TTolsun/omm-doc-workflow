@@ -141,6 +141,7 @@ Confluence는 지정한 서버와 같은 origin의 링크만 수집합니다. `p
 | `DOCGEN_OMM_CLI` | 고정한 OMM CLI 모듈의 위치입니다. |
 | `DOCGEN_OMM_TIMEOUT_MS` | OMM CLI 호출 1회의 제한 시간이며 기본 30초입니다. 시간 초과나 실행 오류는 모델 반려로 다시 요청하지 않고 그대로 실패합니다. |
 | `DOCGEN_LLM_TIMEOUT_MS` | 모델 호출 1회의 제한 시간이며 Ollama 직접 호출은 기본 1,800초, Hermes는 300초입니다. Hermes의 재시도마다 따로 적용됩니다. |
+| `DOCGEN_MAX_ANSWER_CHARS` | 원고 답변 하나의 문자 상한이며 기본 6,000자입니다. JSON 스키마의 `maxLength`로 강제되므로 상한에 닿은 답변은 잘린 것으로 보고 더 짧게 다시 쓰도록 반려합니다. |
 | `DOCGEN_LLM_IDLE_MS` | Ollama 스트리밍에서 마지막 청크 이후 무응답 한도이며 기본 120초입니다. |
 | `DOCGEN_QWEN_NUM_PREDICT` | Ollama 직접 호출의 출력 토큰 한도이며 기본 8,192입니다. `done_reason`이 `stop`이 아니면 실패합니다. |
 | `DOCFLOW_AGENT_ATTEMPTS` | Hermes 실행 최대 횟수이며 기본 3회입니다. JSON 객체가 없거나 종료 코드가 0이 아닌 경우에만 다시 실행합니다. |
