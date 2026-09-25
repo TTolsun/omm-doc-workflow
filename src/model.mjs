@@ -208,6 +208,7 @@ export function computeHashes(bindings, entry) {
       codeHash: hashFiles(files),
       modelHash: hashText(ommModelText(entry.source) + externalEvidenceText(bindings, entry) + typeText),
       fileCount: files.length,
+      files: [...files].sort(),
       exists: ommExists(entry.source),
     };
   }
@@ -238,6 +239,7 @@ export function computeHashes(bindings, entry) {
     codeHash: hashFiles([...files]),
     modelHash: hashText(modelParts.join("\u0001")),
     fileCount: files.size,
+    files: [...files].sort(),
     exists: content !== null,
     missingCited,
   };

@@ -149,6 +149,7 @@ node bin/docflow.mjs sync --project /work/camera-hal-docs --dry-run
 node bin/docflow.mjs sync --project /work/camera-hal-docs
 node bin/docflow.mjs sync --project /work/camera-hal-docs --recover
 node bin/docflow.mjs check --project /work/camera-hal-docs [--ci|--build]   # CI 와 같은 순서의 전체 검사
+node bin/docflow.mjs verify --project /work/camera-hal-docs --changes          # 검토 이후 바뀐 근거 코드를 diff 로 표시
 node bin/docflow.mjs verify --project /work/camera-hal-docs --accept --reviewer=이름
 node bin/docflow.mjs coverage --project /work/camera-hal-docs --check
 node bin/docflow.mjs site --project /work/camera-hal-docs build
@@ -157,6 +158,8 @@ node bin/docflow.mjs site --project /work/camera-hal-docs build
 `check`는 디자인 일치 → (reading·architecture 프리셋이면) 근거 표시 정보 일치 → 사실 추출 → 최신성 → 담당 요소 → 생성 일치 → 사이트 일치 순서로 실행하며, `--ci`는 마지막에 `git diff --exit-code`로 상태 파일·원고·산출물이 커밋과 같은지 확인하고 `--build`는 검사를 통과한 뒤 사이트를 빌드합니다.
 
 구조 스캔은 관점을 요소 단위로 나눠 실행합니다. 바인딩 `sources.<관점>.elements`에 요소별 근거를 적고(지정하지 않은 요소는 가장 가까운 부모의 근거를 물려받습니다), 요소당 입력은 60,000자 안이어야 하며, 근거가 바뀌지 않은 요소는 `scan.json` 기록으로 건너뜁니다. 원고는 질문별 답변과 인용 파일만 모델에서 받아 프로그램이 front matter를 조립하고, 근거는 원고가 인용한 파일과 `must_link` 파일로 한정합니다. 근거가 한도를 넘으면 원본 문자를 자르지 않고 나눠 요약한 뒤 집필합니다. 두 단계 모두 형태·문체 검사에 걸리면 반려 사유를 붙여 다시 요청합니다.
+
+재검토는 `verify --changes`로 시작합니다. `--accept`가 근거 파일마다 git blob 해시를 기록하므로, 다음 재검토 때 어느 파일의 어느 줄이 바뀌었는지 diff로 보여 줍니다. 로컬 모델이 원본을 다시 썼더라도 값 변경을 놓쳤을 수 있으므로, 원본의 값·조건·순서를 이 diff와 직접 대조한 뒤 `--accept`로 기록합니다. 파일별 해시가 없는 예전 기록은 검토 커밋을 기준으로 비교하고, 그 커밋이 저장소에 없으면 그 사실을 알립니다.
 
 설정 파일은 기본적으로 문서 프로젝트의 `docflow.json`입니다. 다른 경로는 `--config`로 지정합니다. [Camera HAL 예제](examples/camera-hal/)와 [설정 안내](docs/configuration.md)를 참고하세요.
 

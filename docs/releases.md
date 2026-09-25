@@ -2,6 +2,18 @@
 
 **0.5.0은 hal-camera가 자체 `tools/docgen` 사본에 쌓아 온 개선을 엔진으로 되가져와, 소비 프로젝트가 엔진만 설치해 쓰도록 만든 판입니다.** hal-camera 저장소는 이 버전을 npm 의존성으로 고정하고 설정·어댑터·상태 파일만 남깁니다.
 
+## 0.6.0 · 2026-09-25
+
+hal-camera에서 `.omm` 그림 세 개로 시험한 결과, `qwen3.5:4b` 구조 스캔은 코드의 값 변경(접기 지연 3초→5초, 화각 반올림 1mm→0.1mm, Probe의 `close(done)` 대기)을 하나도 반영하지 못한 채 형식 검사를 통과했습니다. 프롬프트에 `git diff`를 붙여도 반영하지 못했고, 오히려 값을 잘못 바꾸거나 `diagram.mjs`의 문법 예시를 그림에 베껴 넣었습니다. 병목은 프롬프트가 아니라 모델이므로, 이번 판은 모델 대신 재검토하는 사람이 바뀐 코드를 바로 볼 수 있게 합니다.
+
+| 항목 | 변경 내용 |
+| --- | --- |
+| 검토 기록 | [src/verify.mjs](../src/verify.mjs)의 `--accept`가 근거 파일마다 git blob 해시를 `accepted.files`에 남깁니다. 줄 끝을 LF로 맞춘 내용의 해시라 저장소에 커밋된 blob과 같습니다. `codeHash`와 판정 규칙은 그대로이므로 기존 기록은 계속 유효합니다. |
+| `verify --changes [key]` | 상태 표 뒤에, 관련 소스가 바뀐 항목마다 추가·삭제·변경된 근거 파일과 검토 이후의 unified diff를 보여 줍니다([src/review-diff.mjs](../src/review-diff.mjs)). 검토 당시 blob이 저장소에 없으면 파일 이름만 알립니다. 파일별 해시가 없는 예전 기록은 `accepted.commit` 기준으로 비교하고, squash 머지 등으로 그 커밋이 없으면 그 사실을 알립니다. 출력은 항목당 `DOCFLOW_CHANGES_MAX_LINES`(기본 400줄)로 자릅니다. 판정과 검토 기록은 바꾸지 않습니다. |
+| `verify --check` 실패 안내 | 관련 소스가 바뀐 항목이 있으면 `verify --changes`로 바뀐 코드를 확인하고 원본과 직접 대조하라는 문장을 덧붙입니다. |
+
+검증: `npm test` 136개 중 130개 통과(6개는 실제 Qwen·Hermes 필요). 새 검사는 blob 해시가 `git hash-object`와 같고 CRLF에 영향받지 않는 것, 검토 이후 diff 표시, blob이 없을 때 파일 이름만 표시, 예전 기록의 검토 커밋 기준 비교와 커밋이 없을 때의 안내, `--check` 실패 안내입니다. hal-camera 작업본에서 이 엔진으로 `omm:ui-zoom`을 기록한 뒤 `ExpandingZoomControl.kt`의 3000을 5000으로 바꾸자, `--changes`가 그 두 줄만 보여 주는 것을 확인했습니다.
+
 ## 0.5.2 · 2026-09-19
 
 0.5.1로 다시 실행한 `docs-sync`는 요소 54개 스캔(5.8분, 반려 0회)과 원고 두 건(`overview`, `module-roles`, 반려 0회)을 통과한 뒤 `runtime-flow`의 근거 요약 6/8에서 `Qwen 응답이 완성되지 않았습니다 (length)`로 실패했습니다. 요약 호출인데 출력이 8,192토큰까지 달린 것입니다. JSON 스키마의 `maxLength`는 Ollama 문법으로 강제되지 않으므로 모델이 요약을 끝맺지 못하면 전체 출력 한도까지 갑니다.
