@@ -75,6 +75,10 @@ for (const entry of keys) {
   const accepting = mode === "accept" && (targets.length === 0 || targets.includes(entry.key));
   if (accepting) {
     record.accepted = { codeHash: current.codeHash, modelHash: current.modelHash, at: today, commit: head, reviewer, files: fileBlobs(current.files) };
+  } else if (record.accepted && !record.accepted.files && record.accepted.codeHash === current.codeHash) {
+    // 0.6.0 이전 기록에는 파일별 해시가 없습니다. codeHash 가 같으면 지금 근거가 곧 검토한 근거이므로 채워 둡니다.
+    // 검토자·날짜·커밋은 그대로 두어, 검토하지 않은 사람이 기록을 덮어쓰지 않게 합니다.
+    record.accepted.files = fileBlobs(current.files);
   }
   const st = stateOf(current, record.accepted);
   record.observed = { state: st };

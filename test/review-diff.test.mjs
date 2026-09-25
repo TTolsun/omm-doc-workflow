@@ -93,6 +93,33 @@ test('records without file blobs fall back to the review commit, or say it is go
   } finally { f.cleanup(); }
 });
 
+test('records from before 0.6.0 gain file blobs only while the evidence still matches the review', () => {
+  const f = makeFixture(0);
+  try {
+    const file = path.join(f.root, 'tools/docgen/state/evidence.json');
+    const changed = fs.readFileSync(path.join(f.root, probeFile), 'utf8');
+    const strip = () => {
+      const state = evidence(f.root);
+      delete state.entries['omm:sync-probe'].accepted.files;
+      state.entries['omm:sync-probe'].accepted.reviewer = 'earlier reviewer';
+      fs.writeFileSync(file, JSON.stringify(state, null, 2) + '\n');
+    };
+    // Evidence differs from the review: a hash taken now would describe code nobody reviewed, so none is recorded.
+    strip();
+    verify(f.root);
+    assert.equal(evidence(f.root).entries['omm:sync-probe'].accepted.files, undefined);
+    // Evidence equals the review: record the blobs, and keep who reviewed it.
+    fs.writeFileSync(path.join(f.root, probeFile), reviewed);
+    verify(f.root, '--dry-run');
+    assert.equal(evidence(f.root).entries['omm:sync-probe'].accepted.files, undefined);
+    verify(f.root);
+    const accepted = evidence(f.root).entries['omm:sync-probe'].accepted;
+    assert.deepEqual(accepted.files, { [probeFile]: blobSha(reviewed) });
+    assert.equal(accepted.reviewer, 'earlier reviewer');
+    fs.writeFileSync(path.join(f.root, probeFile), changed);
+  } finally { f.cleanup(); }
+});
+
 test('check failure points a stale review at --changes', () => {
   const f = makeFixture(0);
   try {
