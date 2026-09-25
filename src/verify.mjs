@@ -11,8 +11,9 @@
 // 사용법
 //   node verify.mjs                 상태 표를 출력하고 observed 를 갱신합니다.
 //   node verify.mjs --check         하나라도 "최신"이 아니면 종료 코드 1 (CI 용)
-//   node verify.mjs --accept [key]  사람이 검토를 마친 뒤 현재 해시를 기준으로 기록합니다.
-//                                   key 를 생략하면 모든 키를 기록합니다. 근거 파일별 blob 해시도 남깁니다.
+//   node verify.mjs --accept [key]  사람이 검토를 마친 뒤 현재 해시를 기준으로 기록합니다. 근거 파일별 blob 해시도 남깁니다.
+//                                   key 를 생략하면 최신이 아닌 항목만 기록하고, 최신 항목의 검토자·날짜는 그대로 둡니다.
+//                                   key 를 주면 그 항목을 최신이어도 다시 기록합니다. --all 은 모든 항목을 다시 기록합니다.
 //   node verify.mjs --changes [key] 상태 표 뒤에, 관련 소스가 바뀐 항목마다 검토 이후 바뀐 근거 코드를 diff 로 보여 줍니다.
 //                                   key 를 주면 그 항목만 보여 줍니다. 판정과 검토 기록은 바꾸지 않습니다.
 import { execFileSync } from "node:child_process";
@@ -26,6 +27,7 @@ const mode = args.includes("--check") ? "check" : args.includes("--accept") ? "a
 const reviewer = args.find((a) => a.startsWith("--reviewer="))?.slice("--reviewer=".length) || "unspecified";
 const targets = args.filter((a) => !a.startsWith("--"));
 const showChanges = args.includes("--changes");
+const acceptAll = args.includes("--all");
 
 function gitShortHead() {
   try {
@@ -52,6 +54,7 @@ const today = new Date().toISOString().slice(0, 10);
 const head = gitShortHead();
 const rows = [];
 let problems = 0;
+let kept = 0;
 
 for (const entry of keys) {
   const current = computeHashes(bindings, entry);
@@ -72,7 +75,12 @@ for (const entry of keys) {
     continue;
   }
 
-  const accepting = mode === "accept" && (targets.length === 0 || targets.includes(entry.key));
+  // 키 없이 부른 --accept 가 최신 항목까지 다시 쓰면, 그 항목을 검토하지 않은 사람의 이름이 원래 검토자를 덮어씁니다.
+  // 릴리스나 큰 PR 에서 바뀐 항목만 검토하고 전체를 기록하는 일이 반복되었으므로, 기본값은 최신이 아닌 항목만 기록합니다.
+  const accepting = mode === "accept" && (targets.length
+    ? targets.includes(entry.key)
+    : acceptAll || stateOf(current, record.accepted) !== "fresh");
+  if (mode === "accept" && !targets.length && !accepting) kept += 1;
   if (accepting) {
     record.accepted = { codeHash: current.codeHash, modelHash: current.modelHash, at: today, commit: head, reviewer, files: fileBlobs(current.files) };
   } else if (record.accepted && !record.accepted.files && record.accepted.codeHash === current.codeHash) {
@@ -124,4 +132,7 @@ if (mode === "accept" && problems) {
   process.stderr.write(`\n검토 기록 실패: ${problems}개 항목의 원본 또는 인용한 근거 파일이 없습니다. 원고의 sources 를 고친 뒤 다시 실행하세요.\n`);
   process.exit(1);
 }
-if (mode === "accept") process.stdout.write(`\n검토 기록 완료 (${today}${head ? ` @ ${head}` : ""}).\n`);
+if (mode === "accept") {
+  process.stdout.write(`\n검토 기록 완료 (${today}${head ? ` @ ${head}` : ""}).\n`);
+  if (kept) process.stdout.write(`최신 항목 ${kept}개는 기존 검토 기록을 유지했습니다. 다시 기록하려면 키를 지정하거나 --all 을 붙이세요.\n`);
+}

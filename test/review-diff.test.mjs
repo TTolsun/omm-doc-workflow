@@ -120,6 +120,29 @@ test('records from before 0.6.0 gain file blobs only while the evidence still ma
   } finally { f.cleanup(); }
 });
 
+test('accept without a key keeps the reviewer of entries that are still fresh', () => {
+  const f = makeFixture(1);
+  try {
+    const reviewerOf = key => evidence(f.root).entries[key].accepted.reviewer;
+    const omm = 'omm:sync-probe', content = 'content:probe.md/overview-0';
+    assert.equal(verify(f.root, '--accept', '--reviewer=A').status, 0);
+    // Only the manuscript changes, so only its entry needs a new review.
+    fs.appendFileSync(path.join(f.root, 'docs/guide/_content/probe/overview-0.md'), '\n관측 시간은 설정으로 바꿀 수 없습니다.\n');
+    const kept = verify(f.root, '--accept', '--reviewer=B');
+    assert.equal(kept.status, 0, kept.stderr);
+    assert.equal(reviewerOf(omm), 'A');
+    assert.equal(reviewerOf(content), 'B');
+    assert.match(kept.stdout, /최신 항목 1개는 기존 검토 기록을 유지했습니다/);
+    // A named key is an explicit re-review, fresh or not; --all restores the old record-everything behaviour.
+    assert.equal(verify(f.root, '--accept', omm, '--reviewer=C').status, 0);
+    assert.equal(reviewerOf(omm), 'C');
+    assert.equal(reviewerOf(content), 'B');
+    assert.equal(verify(f.root, '--accept', '--all', '--reviewer=D').status, 0);
+    assert.equal(reviewerOf(omm), 'D');
+    assert.equal(reviewerOf(content), 'D');
+  } finally { f.cleanup(); }
+});
+
 test('check failure points a stale review at --changes', () => {
   const f = makeFixture(0);
   try {
