@@ -1,5 +1,13 @@
 # 실행과 복구 검증 기록
 
+## 0.7.1 삭제된 근거와 승인 실패 검사
+
+삭제된 인용이 있어도 남아 있는 `must_link` 근거로 원고를 갱신하고, 삭제된 파일의 재인용과 실행 중 복원을 거부하는 회귀 검사를 추가했습니다. 모든 집필 근거가 사라지면 실제 실행과 `dry-run` 모두 명확한 오류로 실패합니다. 원고 또는 인용 근거가 없는 승인 요청은 상태 파일을 전혀 바꾸지 않으며, 유효한 키만 지정한 승인은 다른 키의 누락과 무관하게 완료됩니다.
+
+Windows와 Node 24.18.0에서 `npm ci --ignore-scripts` 후 `npm test`의 144개 중 138개가 통과했습니다. 실제 Hermes·Qwen 또는 장시간 스트리밍 실행 조건이 필요한 6개는 건너뛰었습니다. 추가한 회귀 검사 6개와 기존 임시 프로젝트 실행·오류 주입·중단 후 복구 검사가 모두 통과했습니다.
+
+예제의 `sync --dry-run`, 미리보기 재생성 결과 비교, `git diff --check`를 통과했습니다. 모의 Hermes와 Windows `.cmd`를 통한 `doctor` 검사도 통과했습니다. 실제 예제 `doctor`는 Hermes 실행 중 `EPERM`으로 실패했으며, 실제 Hermes·Qwen 및 사내 Jira·Confluence 연결은 확인하지 않았습니다. 적용 조건은 [0.7.1 변경 기록](releases.md)을 확인하세요.
+
 ## 0.6.0 구조 스캔의 값 변경 반영 시험
 
 hal-camera의 `.omm/ui-zoom`(state), `ui-camera-label`(flow), `ui-tool-handoff`(sequence)로 시험했습니다. 2026-09-25, Windows, Ollama `qwen3.5:4b`, 컨텍스트 32,768. 다른 요소의 `scan.json` 기록을 고정해 세 요소만 스캔했으므로 프롬프트는 실제 `sync`와 같습니다.

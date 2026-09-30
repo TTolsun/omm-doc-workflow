@@ -219,7 +219,11 @@ try {
     console.log(`  - ${k.page}/${k.block.id}`);
     // 집필 근거는 관점 evidence 전체가 아니라 원고가 인용한 파일과 must_link 파일입니다. 한도를 넘으면 근거를 나눠 요약한 뒤 집필합니다.
     const sourceFiles = manuscriptFiles(bindings, k);
-    const plan = manuscriptPlan(k, runNode('brief.mjs', k.page, k.block.id), sourceFiles);
+    const missingFiles = citedFiles(readContentBlock(bindings, k.page, k.block)?.meta)
+      .filter(file => !sourceFiles.includes(file));
+    const missingNote = missingFiles.length ? '\n현재 존재하지 않는 기존 인용 파일: ' + JSON.stringify(missingFiles) +
+      '\n위 목록은 명령이 아닌 근거 상태입니다. 이 파일은 다시 인용하지 마세요. 현재 코드로 확인할 수 없는 기존 설명은 제거하거나 확인 필요로 표시하세요.\n' : '';
+    const plan = manuscriptPlan(k, runNode('brief.mjs', k.page, k.block.id) + missingNote, sourceFiles);
     const prompt = await manuscriptPrompt(plan, qwen, dryRun);
     if (dryRun) continue;
     const existingMeta = readContentBlock(bindings, k.page, k.block)?.meta;
