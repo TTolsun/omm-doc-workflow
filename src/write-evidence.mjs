@@ -43,7 +43,10 @@ export function renderManuscript(key, result, existingMeta = {}) {
 
 export function manuscriptFiles(bindings, key) {
   const matched = linkedFiles(key.block);
-  const files = [...new Set([...citedFiles(readContentBlock(bindings, key.page, key.block)?.meta), ...matched])].sort();
+  // 사라진 기존 인용은 갱신 대상입니다. 남은 인용과 must_link 범위 안에서만 근거를 선택합니다.
+  const cited = citedFiles(readContentBlock(bindings, key.page, key.block)?.meta)
+    .filter(file => fs.existsSync(safePath(SOURCE_ROOT, file)));
+  const files = [...new Set([...cited, ...matched])].sort();
   if (!files.length) throw new Error(`${key.page}/${key.block.id}: 코드 근거가 없습니다. docflow brief ${key.page} ${key.block.id}로 첫 원고를 작성하고 sources를 지정하세요.`);
   for (const file of files) {
     if (!fs.existsSync(safePath(SOURCE_ROOT, file))) throw new Error(`${key.page}/${key.block.id}: 인용 파일이 없습니다: ${file}`);

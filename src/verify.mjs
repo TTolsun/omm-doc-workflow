@@ -51,13 +51,23 @@ if ((mode === "accept" || showChanges) && targets.length) {
 }
 
 const today = new Date().toISOString().slice(0, 10);
+const currents = new Map(keys.map(entry => [entry.key, computeHashes(bindings, entry)]));
+// 요청한 대상 전체를 먼저 검사하여 실패 시 일부 승인이나 해시 보충도 저장하지 않습니다.
+if (mode === "accept") {
+  const invalid = keys.filter(entry => {
+    if (targets.length && !targets.includes(entry.key)) return false;
+    const current = currents.get(entry.key);
+    return !current.exists || current.missingCited?.length;
+  });
+  if (invalid.length) fail(`검토 기록 실패: 원본 또는 인용 근거가 없습니다: ${invalid.map(entry => entry.key).join(", ")}. 승인 기록은 변경하지 않았습니다.`);
+}
 const head = gitShortHead();
 const rows = [];
 let problems = 0;
 let kept = 0;
 
 for (const entry of keys) {
-  const current = computeHashes(bindings, entry);
+  const current = currents.get(entry.key);
   const record = state.entries[entry.key] ?? {};
 
   if (!current.exists) {
@@ -127,12 +137,7 @@ if (mode === "check" && problems) {
   }
   process.exit(1);
 }
-// 근거 파일이 없는 항목은 검토로 지울 수 없습니다. 조용히 성공하면 CI에서만 드러납니다.
-if (mode === "accept" && problems) {
-  process.stderr.write(`\n검토 기록 실패: ${problems}개 항목의 원본 또는 인용한 근거 파일이 없습니다. 원고의 sources 를 고친 뒤 다시 실행하세요.\n`);
-  process.exit(1);
-}
 if (mode === "accept") {
-  process.stdout.write(`\n검토 기록 완료 (${today}${head ? ` @ ${head}` : ""}).\n`);
+  process.stdout.write(`\n${args.includes("--dry-run") ? "검토 가능 여부 확인 완료 (기록하지 않음)" : "검토 기록 완료"} (${today}${head ? ` @ ${head}` : ""}).\n`);
   if (kept) process.stdout.write(`최신 항목 ${kept}개는 기존 검토 기록을 유지했습니다. 다시 기록하려면 키를 지정하거나 --all 을 붙이세요.\n`);
 }

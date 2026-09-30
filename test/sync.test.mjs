@@ -561,3 +561,54 @@ test('real installed Qwen writes one manuscript without scanning', { skip: proce
   const page = fs.readFileSync(path.join(f.root, 'docs/guide/probe.md'), 'utf8');
   assert.match(page, /12000|12,000|12\s*초/); assert.doesNotMatch(page, /10000|10,000|10\s*초/);
 });
+
+test('no remaining code evidence fails clearly in dry-run and sync without writes', async t => {
+  const f = fixture(t);
+  fs.unlinkSync(path.join(f.root, probeFile));
+  const before = snapshot(f.root);
+  for (const args of [[], ['--dry-run'], ['--write-only'], ['--write-only', '--dry-run']]) {
+    const r = await runSync(f.root, { DOCGEN_OLLAMA_URL: 'http://127.0.0.1:1' }, args);
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /코드 근거가 없습니다/);
+    assert.deepEqual(changedFiles(before, snapshot(f.root)), []);
+  }
+});
+
+for (const outcome of ['updated', 'old-citation', 'restored-during-sync']) {
+  test(`deleted citation with remaining code: ${outcome}`, async t => {
+    const f = fixture(t);
+    const replacement = probeFile.replace('Probe.kt', 'Renamed.kt');
+    f.put(replacement, fs.readFileSync(path.join(f.root, probeFile)));
+    fs.unlinkSync(path.join(f.root, probeFile));
+    const binding = 'docs/guide/_bindings.yaml';
+    f.put(binding, fs.readFileSync(path.join(f.root, binding), 'utf8')
+      .replaceAll(probeFile, replacement).replace('          reader:', '          must_link: [Renamed]\n          reader:'));
+    const before = snapshot(f.root);
+    let writes = 0;
+    const url = await server(t, (data, res) => {
+      if (data.format.properties.updates) return reply(res, { updates: [] });
+      writes++;
+      const prompt = data.messages.map(m => m.content).join('\n');
+      assert.match(prompt, /현재 존재하지 않는 기존 인용 파일/);
+      assert.ok(prompt.includes(probeFile));
+      assert.ok(prompt.includes(`## 파일: ${replacement}`));
+      assert.ok(!prompt.includes(`## 파일: ${probeFile}`));
+      if (outcome === 'restored-during-sync') f.put(probeFile, '// concurrent restoration\n');
+      reply(res, { sections: { answer_1: 'Renamed 파일에서 Probe.OBSERVE_MS는 관측 시간을 12000ms로 지정합니다.' },
+        sources: [outcome === 'old-citation' ? probeFile : replacement] });
+    });
+    const dry = await runSync(f.root, {}, ['--dry-run']);
+    assert.equal(dry.code, 0, dry.out);
+    const r = await runSync(f.root, { DOCGEN_OLLAMA_URL: url });
+    assert.equal(writes, 1);
+    if (outcome === 'updated') {
+      assert.equal(r.code, 0, r.out);
+      assert.ok(fs.readFileSync(path.join(f.root, 'docs/guide/_content/probe/overview-0.md'), 'utf8').includes(replacement));
+      const accepted = files => Object.fromEntries(Object.entries(JSON.parse(files.get('tools/docgen/state/evidence.json')).entries).map(([key, value]) => [key, value.accepted]));
+      assert.deepEqual(accepted(snapshot(f.root)), accepted(before));
+    } else {
+      assert.equal(r.code, 1, r.out);
+      assert.deepEqual(changedFiles(before, snapshot(f.root)), outcome === 'old-citation' ? [] : [probeFile]);
+    }
+  });
+}

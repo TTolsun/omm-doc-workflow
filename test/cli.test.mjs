@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { makeFixture } from './helper.mjs';
+import { makeFixture, probeFile } from './helper.mjs';
 import { snapshot, changedFiles } from '../src/transaction.mjs';
 
 const repo = path.resolve(import.meta.dirname, '..');
@@ -12,6 +12,26 @@ const cli = path.join(repo, 'bin/docflow.mjs');
 export function runCli(root, command, args = [], env = {}) {
   const result = spawnSync(process.execPath, [cli, command, ...args], { cwd: root, encoding: 'utf8', env: { ...process.env, ...env } });
   return { code: result.status, out: result.stdout + result.stderr };
+}
+
+for (const missing of ['source', 'manuscript']) {
+  test(`accept rejects missing ${missing} without partial approvals and respects targets`, t => {
+    const f = makeFixture(); t.after(f.cleanup);
+    fs.unlinkSync(path.join(f.root, missing === 'source' ? probeFile : 'docs/guide/_content/probe/overview-0.md'));
+    const before = snapshot(f.root);
+    for (const extra of [[], ['--dry-run']]) {
+      const r = runCli(f.root, 'verify', ['--accept', '--reviewer=test', ...extra]);
+      assert.equal(r.code, 1, r.out);
+      assert.match(r.out, /검토 기록 실패/);
+      assert.doesNotMatch(r.out, /검토 기록 완료/);
+      assert.deepEqual(changedFiles(before, snapshot(f.root)), []);
+    }
+    const selected = runCli(f.root, 'verify', ['--accept', 'omm:sync-probe', '--reviewer=test']);
+    assert.equal(selected.code, 0, selected.out);
+    const entries = JSON.parse(fs.readFileSync(path.join(f.root, 'tools/docgen/state/evidence.json'))).entries;
+    assert.equal(entries['omm:sync-probe'].accepted.reviewer, 'test');
+    assert.equal(entries['content:probe.md/overview-0'].observed.state, 'missing');
+  });
 }
 
 test('public CLI runs example dry-run and generated-page checks without mutation', t => {

@@ -41,7 +41,9 @@ function sourceSnapshot(bindings) {
   const globs = [...(CONFIG.sourceInputs ?? []), ...Object.values(bindings.sources).flatMap(s => s.evidence ?? [])];
   const files = new Set(globFiles(globs));
   for (const k of collectKeys(bindings).filter(k => k.kind === 'content')) {
-    for (const rel of citedFiles(readContentBlock(bindings, k.page, k.block)?.meta)) files.add(rel);
+    for (const rel of citedFiles(readContentBlock(bindings, k.page, k.block)?.meta)) {
+      if (fs.existsSync(sourcePath(rel))) files.add(rel);
+    }
     for (const rel of linkedFiles(k.block)) files.add(rel);
   }
   return new Map([...files].sort().map(rel => [rel, fs.readFileSync(sourcePath(rel))]));
